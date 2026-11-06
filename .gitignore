@@ -1,0 +1,30 @@
+# Environment and secrets
+.env
+*.pem
+*.key
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Run outputs (large, reproducible)
+runs/
+results/raw/
+*.jsonl
+!data/sample/*.json
+
+# Spark / Kafka local state
+spark-warehouse/
+metastore_db/
+checkpoints/
+kafka-data/
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store

@@ -1,0 +1,40 @@
+{
+  "params": {
+    "seed": 42,
+    "n_symbols": 100,
+    "minutes": 40,
+    "mean_rate_per_symbol": 0.25,
+    "n_shocks": 20,
+    "shock_start_s": 1920,
+    "shock_end_s": 2310
+  },
+  "window_ms": 60000,
+  "baseline_bars": 30,
+  "z_threshold": 3.0,
+  "t0_utc": "2026-01-05T14:30:00Z",
+  "t0_ms": 1767623400000,
+  "rows": {
+    "trades": 60163,
+    "bars": 4000,
+    "alerts": 23,
+    "shocks": 20
+  },
+  "shock_detection": {
+    "shocks": 20,
+    "detected": 20,
+    "total_alerts": 23,
+    "alerts_not_explained_by_shocks": 3
+  },
+  "sha256_uncompressed": {
+    "trades.csv.gz": "773a2b0338321fee577d3cebd222ca21157965f1c5ef48b27325d6bc95a7067e",
+    "bars_expected.csv": "f47d7698b628dbf058e567ace6b69273a18f5c7059b21d9f8cce2c40b72e5416",
+    "alerts_expected.csv": "c51199691f434f79344473aac45c98a177300de9e1c34ce38b6c250e69222bf8",
+    "symbols.csv": "91c6a17883731616d91ede5d726c5c0de2968a343eaad47b92bfb00b82a08c6d",
+    "shocks.json": "399cf8f7ac17aeaa64cdf1dbd3147a72668d28ca1f69562f666b5c2e8b606c9b"
+  },
+  "versions": {
+    "numpy": "2.5.3",
+    "pandas": "3.0.5",
+    "python": "3.13.18"
+  }
+}

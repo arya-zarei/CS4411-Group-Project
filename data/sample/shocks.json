@@ -1,0 +1,122 @@
+[
+ {
+  "symbol": "SYM096",
+  "offset_ms": 1943516,
+  "event_time_ms": 1767625343516,
+  "log_jump": 0.028238
+ },
+ {
+  "symbol": "SYM016",
+  "offset_ms": 1951932,
+  "event_time_ms": 1767625351932,
+  "log_jump": 0.025718
+ },
+ {
+  "symbol": "SYM043",
+  "offset_ms": 1959921,
+  "event_time_ms": 1767625359921,
+  "log_jump": -0.026163
+ },
+ {
+  "symbol": "SYM004",
+  "offset_ms": 1962388,
+  "event_time_ms": 1767625362388,
+  "log_jump": 0.015507
+ },
+ {
+  "symbol": "SYM002",
+  "offset_ms": 1992210,
+  "event_time_ms": 1767625392210,
+  "log_jump": -0.026549
+ },
+ {
+  "symbol": "SYM039",
+  "offset_ms": 2044701,
+  "event_time_ms": 1767625444701,
+  "log_jump": -0.027579
+ },
+ {
+  "symbol": "SYM097",
+  "offset_ms": 2046292,
+  "event_time_ms": 1767625446292,
+  "log_jump": 0.024652
+ },
+ {
+  "symbol": "SYM042",
+  "offset_ms": 2057900,
+  "event_time_ms": 1767625457900,
+  "log_jump": -0.018183
+ },
+ {
+  "symbol": "SYM018",
+  "offset_ms": 2064121,
+  "event_time_ms": 1767625464121,
+  "log_jump": -0.024176
+ },
+ {
+  "symbol": "SYM010",
+  "offset_ms": 2076061,
+  "event_time_ms": 1767625476061,
+  "log_jump": 0.019775
+ },
+ {
+  "symbol": "SYM007",
+  "offset_ms": 2095072,
+  "event_time_ms": 1767625495072,
+  "log_jump": 0.028329
+ },
+ {
+  "symbol": "SYM079",
+  "offset_ms": 2143082,
+  "event_time_ms": 1767625543082,
+  "log_jump": 0.028327
+ },
+ {
+  "symbol": "SYM088",
+  "offset_ms": 2144055,
+  "event_time_ms": 1767625544055,
+  "log_jump": 0.020248
+ },
+ {
+  "symbol": "SYM052",
+  "offset_ms": 2163984,
+  "event_time_ms": 1767625563984,
+  "log_jump": 0.026721
+ },
+ {
+  "symbol": "SYM056",
+  "offset_ms": 2180509,
+  "event_time_ms": 1767625580509,
+  "log_jump": -0.015981
+ },
+ {
+  "symbol": "SYM062",
+  "offset_ms": 2183202,
+  "event_time_ms": 1767625583202,
+  "log_jump": -0.026991
+ },
+ {
+  "symbol": "SYM035",
+  "offset_ms": 2237675,
+  "event_time_ms": 1767625637675,
+  "log_jump": -0.02511
+ },
+ {
+  "symbol": "SYM033",
+  "offset_ms": 2249779,
+  "event_time_ms": 1767625649779,
+  "log_jump": 0.021588
+ },
+ {
+  "symbol": "SYM064",
+  "offset_ms": 2249975,
+  "event_time_ms": 1767625649975,
+  "log_jump": 0.023919
+ },
+ {
+  "symbol": "SYM008",
+  "offset_ms": 2306600,
+  "event_time_ms": 1767625706600,
+  "log_jump": -0.019669
+ }
+]
