@@ -62,3 +62,17 @@ def test_init_sql_defines_plan_tables():
     for table in ("bars", "alerts", "bars_plain", "alerts_plain", "query_progress"):
         assert re.search(rf"CREATE TABLE {table}\b", sql), table
     assert sql.count("PRIMARY KEY (symbol, window_start)") == 2
+
+
+def test_pipeline_services_exist_and_checkpoint_survives_kills():
+    services = yaml.safe_load(COMPOSE)["services"]
+    assert "generator" in services and "spark-bars" in services
+    assert any(v.startswith("spark-checkpoint:") for v in services["spark-bars"]["volumes"])
+    assert "spark-checkpoint" in yaml.safe_load(COMPOSE)["volumes"]
+    assert str(services["spark-bars"]["cpus"]) == "4"  # decision D2: local[4] with a 4-CPU limit
+
+
+def test_spark_code_keeps_python_310_compatible_imports():
+    # the official Spark image runs Python 3.10: no datetime.UTC (3.11+) in spark/
+    for path in (ROOT / "spark").glob("*.py"):
+        assert "from datetime import UTC" not in path.read_text(), path

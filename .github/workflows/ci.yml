@@ -20,9 +20,26 @@ jobs:
       - run: uv sync --frozen
       - run: uv run ruff check .
       - run: uv run ruff format --check .
+      - name: infra/generator/requirements.txt matches uv.lock
+        run: |
+          uv export --frozen --no-dev --no-hashes --no-header --no-emit-project --format requirements-txt -o /tmp/requirements.txt
+          diff -u infra/generator/requirements.txt /tmp/requirements.txt
 
   test:
     runs-on: ubuntu-latest
+    services:
+      postgres:                       # for the sink integration tests (tests/test_sink_postgres.py)
+        image: postgres:18.6
+        env:
+          POSTGRES_USER: pipeline
+          POSTGRES_PASSWORD: change-me-locally
+          POSTGRES_DB: market
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U pipeline -d market"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      PG_DSN: postgresql://pipeline:change-me-locally@localhost:5432/market
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: astral-sh/setup-uv@v10.3.3
@@ -30,7 +47,7 @@ jobs:
           version: "0.11.32"
           enable-cache: true
       - run: uv sync --frozen
-      - run: uv run pytest -q
+      - run: uv run pytest -q -rs
       - name: Oracle script reproduces the committed golden dataset
         run: uv run python tools/gen_sample_dataset.py --out data/sample --check
 
