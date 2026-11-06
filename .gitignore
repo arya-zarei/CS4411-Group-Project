@@ -28,3 +28,6 @@ kafka-data/
 .idea/
 .vscode/
 .DS_Store
+
+# Machine-specific files (for example a proxy CA used via EXTRA_CA_FILE)
+.local/

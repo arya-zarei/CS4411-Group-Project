@@ -1,0 +1,2 @@
+# Python packages inside the Spark image (Python 3.10 in the official Spark image). Pinned.
+psycopg[binary]==3.3.8
