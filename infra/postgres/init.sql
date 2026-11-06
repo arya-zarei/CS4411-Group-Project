@@ -32,16 +32,23 @@ CREATE TABLE alerts (
 CREATE TABLE bars_plain   (LIKE bars   INCLUDING DEFAULTS, id bigserial PRIMARY KEY);
 CREATE TABLE alerts_plain (LIKE alerts INCLUDING DEFAULTS, id bigserial PRIMARY KEY);
 
+-- Columns query_name, batch_ts, end_offsets and latest_offsets extend Appendix A for SPK-8
+-- (per-partition latest versus processed offsets); see docs/decisions.md.
 CREATE TABLE query_progress (
   id                   bigserial PRIMARY KEY,
   ts                   timestamptz NOT NULL DEFAULT clock_timestamp(),
+  query_name           text,
+  batch_ts             timestamptz,
   batch_id             bigint,
   num_input_rows       bigint,
   input_rows_per_s     double precision,
   processed_rows_per_s double precision,
   batch_duration_ms    bigint,
-  lag_total            bigint
+  lag_total            bigint,
+  end_offsets          jsonb,
+  latest_offsets       jsonb
 );
 
 CREATE INDEX ON bars (window_start);
 CREATE INDEX ON alerts (window_start DESC);
+CREATE INDEX ON query_progress (ts DESC);

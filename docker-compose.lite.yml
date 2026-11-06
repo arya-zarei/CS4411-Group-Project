@@ -11,3 +11,13 @@ services:
   kafka-3:
     environment:
       KAFKA_HEAP_OPTS: -Xms512m -Xmx512m
+  spark-bars:
+    mem_limit: 2g
+    command:
+      - /opt/spark/bin/spark-submit
+      - --master=local[4]
+      - --driver-memory=1g
+      - --conf=spark.sql.shuffle.partitions=4
+      - --conf=spark.sql.session.timeZone=UTC
+      - --conf=spark.ui.showConsoleProgress=false
+      - /app/bars_job.py

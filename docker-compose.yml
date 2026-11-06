@@ -125,16 +125,80 @@ services:
       retries: 12
       start_period: 20s
 
-  # T04 / spike S2: minimal Spark job that prints records from the `trades` topic. Start with: make smoke
-  spark-smoke:
-    profiles: [smoke]
+  # Trade generator (T10). Default: the live demo, virtual mode at 30x so alerts appear after about
+  # 80 seconds (decision D3), with shocks continuing after the warm-up (GEN-5). 480 virtual minutes
+  # take 16 wall minutes; then a __FLUSH__ trade closes the last windows and the generator exits.
+  generator:
     build:
+      context: .
+      dockerfile: infra/generator/Dockerfile
+      args:
+        PYTHON_IMAGE: ${PYTHON_IMAGE:-python:3.13.18-slim-bookworm}
+      secrets: [extra_ca]            # optional proxy CA, see infra/build/with-extra-ca.sh
+    image: pipeline-generator:local
+    container_name: generator
+    restart: "no"
+    depends_on:
+      kafka-init: {condition: service_completed_successfully}
+    command:
+      - --mode=virtual
+      - --speed=${GENERATOR_SPEED:-30}
+      - --minutes=${GENERATOR_MINUTES:-480}
+      - --seed=42
+      - --shock-rate-per-min=0.2
+      - --acks=all
+    volumes:
+      - ./data:/data:ro
+      - ./runs:/runs
+
+  # Spark Structured Streaming bars and alerts job (T11, T12, T15). local[4] in one container (decision D2).
+  spark-bars:
+    build: &spark-build
       context: .
       dockerfile: infra/spark/Dockerfile
       args:
         SPARK_IMAGE: ${SPARK_IMAGE:-spark:4.2.1-scala2.13-java17-python3-ubuntu}
         SPARK_KAFKA_CONNECTOR: ${SPARK_KAFKA_CONNECTOR:-org.apache.spark:spark-sql-kafka-0-10_2.13:4.2.1}
-      secrets: [extra_ca]            # optional proxy CA, see infra/spark/with-extra-ca.sh
+      secrets: [extra_ca]            # optional proxy CA, see infra/build/with-extra-ca.sh
+    image: pipeline-spark:local
+    container_name: spark-bars
+    restart: "no"
+    depends_on:
+      kafka-init: {condition: service_completed_successfully}
+      postgres: {condition: service_healthy}
+    command:
+      - /opt/spark/bin/spark-submit
+      - --master=local[4]
+      - --driver-memory=${SPARK_DRIVER_MEMORY:-2g}
+      - --conf=spark.sql.shuffle.partitions=${SPARK_SHUFFLE_PARTITIONS:-4}
+      - --conf=spark.sql.session.timeZone=UTC
+      - --conf=spark.ui.showConsoleProgress=false
+      - /app/bars_job.py
+    environment:
+      HOME: /tmp
+      PG_DSN: postgresql://${POSTGRES_USER:-pipeline}:${POSTGRES_PASSWORD:-change-me-locally}@postgres:5432/${POSTGRES_DB:-market}
+      STARTING_OFFSETS: ${STARTING_OFFSETS:-earliest}
+      MAX_OFFSETS_PER_TRIGGER: ${MAX_OFFSETS_PER_TRIGGER:-}
+      TRIGGER_INTERVAL: ${TRIGGER_INTERVAL:-1 second}
+      WATERMARK_DELAY: ${WATERMARK_DELAY:-10 seconds}
+      SINK_MODE: ${SINK_MODE:-upsert}
+      CHECKPOINT_DIR: /checkpoints/bars
+    volumes:
+      - spark-checkpoint:/checkpoints    # survives container kills (INF-5, Experiments 3 and 4)
+    cpus: 4
+    mem_limit: ${SPARK_MEM_LIMIT:-3g}
+    ports: ["127.0.0.1:4040:4040"]     # Spark UI
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:4040/api/v1/applications >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+
+  # T04 / spike S2: minimal Spark job that prints records from the `trades` topic. Start with: make smoke
+  spark-smoke:
+    profiles: [smoke]
+    build: *spark-build
     image: pipeline-spark:local
     container_name: spark-smoke
     restart: "no"
@@ -154,3 +218,4 @@ volumes:
   kafka-3-data:
   postgres-data:
   grafana-data:
+  spark-checkpoint:
