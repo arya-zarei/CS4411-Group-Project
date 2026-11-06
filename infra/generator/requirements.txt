@@ -1,0 +1,19 @@
+confluent-kafka==2.16.1
+    # via kafka-spark-pipeline
+numpy==2.5.3
+    # via
+    #   kafka-spark-pipeline
+    #   pandas
+pandas==3.0.5
+    # via kafka-spark-pipeline
+psycopg==3.3.8
+    # via kafka-spark-pipeline
+psycopg-binary==3.3.8 ; implementation_name != 'pypy'
+    # via psycopg
+python-dateutil==4.0.0
+    # via pandas
+tzdata==2026.6
+    # via
+    #   pandas
+    #   psycopg
+    #   python-dateutil

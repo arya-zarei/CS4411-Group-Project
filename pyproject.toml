@@ -4,8 +4,10 @@ version = "0.1.0"
 description = "Real-time market-data pipeline with Apache Kafka and Spark Structured Streaming (COMPSCI 4411/9538, Group 6)"
 requires-python = "==3.13.*"
 dependencies = [
+    "confluent-kafka==2.16.1",
     "numpy==2.5.3",   # pinned: random streams are only stable per numpy version (data/sample/MANIFEST.json)
     "pandas==3.0.5",
+    "psycopg[binary]==3.3.8",
 ]
 
 [dependency-groups]
@@ -23,12 +25,18 @@ line-length = 110
 target-version = "py313"
 extend-exclude = ["runs", "results/raw"]
 
+# Code under spark/ runs on the Python 3.10 shipped in the official Spark image.
+per-file-target-version = { "spark/**" = "py310" }
+
 [tool.ruff.format]
 # The oracle script is the source of truth for the data; keep its bytes as delivered.
 exclude = ["tools/gen_sample_dataset.py"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["alert_rule", "sink", "progress_listener", "tradegen", "verify", "tools"]
 
 [tool.ruff.lint.per-file-ignores]
 # Oracle code and its verbatim copy (B007: loop variable `sym` unused).
@@ -37,4 +45,4 @@ select = ["E", "F", "W", "I", "B", "UP"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["."]
+pythonpath = [".", "generator", "spark"]

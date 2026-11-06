@@ -7,7 +7,7 @@ ARG SPARK_KAFKA_CONNECTOR=org.apache.spark:spark-sql-kafka-0-10_2.13:4.2.1
 
 USER root
 
-COPY infra/spark/with-extra-ca.sh /usr/local/bin/with-extra-ca.sh
+COPY infra/build/with-extra-ca.sh /usr/local/bin/with-extra-ca.sh
 COPY infra/spark/requirements.txt /tmp/requirements.txt
 RUN --mount=type=secret,id=extra_ca,required=false \
     with-extra-ca.sh pip3 install --no-cache-dir -r /tmp/requirements.txt && rm /tmp/requirements.txt
