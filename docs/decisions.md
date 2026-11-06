@@ -2,6 +2,33 @@
 
 Every decision and every deviation from the proposal or `PLAN.md`, newest first. Format: date, ID, decision, reason.
 
+## 2026-11-06 (M1)
+
+### D1 adopted: "price change" in the alert rule is the log return of the close
+
+Taken as the plan recommends, because the oracle and the golden dataset (23 expected alerts) already define it that way. **Confirm in the group;** changing it means changing `tools/gen_sample_dataset.py`, `verify/reference.py` and `spark/alert_rule.py` together and regenerating `data/sample/`.
+
+### M1 build: choices and deviations
+
+| Topic | Choice | Reason |
+|---|---|---|
+| Virtual mode | `tradegen` calls the oracle's `make_trades` directly | GEN-1 holds by construction, and the generator can never drift from the bars and alerts the verifier expects. Tested: seed 42, 40 minutes hashes to the golden `trades.csv.gz`. |
+| Producer idempotence | **On by default whenever `acks=all`**; off otherwise; `--idempotence false` to turn it off | Found in a fault check: with `acks=all` but idempotence off, killing the partition-0 leader once duplicated trade 36641 in the topic (a producer retry), and the verifier reported one wrong bar. With idempotence on, 3 out of 3 broker-kill runs were exact. Experiment 2 should measure this explicitly (idempotence on versus off). |
+| Alert rule in Spark | Plain Python (`spark/alert_rule.py`) | The Spark image has no numpy or pandas. A test proves it gives the oracle's 23 alerts on the golden data. |
+| Alert history | Read back from `bars` in the same transaction: the 31 bars before the batch's first window plus the batch's windows | Correct for any batch size, including the golden run's single 4,000-bar batch and replays after a crash. |
+| Insert mode (SPK-11) | `bars_plain` / `alerts_plain`; alert history is read de-duplicated | Duplicates in `bars_plain` must not change the alert maths, only show up as duplicate rows. |
+| `query_progress` | Added `query_name`, `batch_ts`, `end_offsets`, `latest_offsets` (jsonb) to Appendix A | SPK-8 asks for per-partition latest versus processed offsets. |
+| Shuffle partitions | `spark.sql.shuffle.partitions=4` (equal to the cores) | The default of 200 would mean 200 state-store tasks per batch on 4 cores. Fixed per checkpoint, so it is part of the experiment configuration. |
+| Driver memory | `--driver-memory 2g`, container limit 3 GB, 4 CPUs | Within the PLAN.md 7.2 budget. Measured under the 60x stream: Spark 1.1 GB, brokers 0.7 to 0.9 GB each, total about 3.8 GB. |
+| Golden run | Topic preloaded completely, then Spark starts from `earliest` | An unpaced replay packs 40 virtual minutes into a few wall seconds; milliseconds of partition skew would exceed the 10 s watermark and drop trades as late. Preloading puts everything in one batch (PLAN.md deterministic replay mode). Still a caveat for T26: with `maxOffsetsPerTrigger`, batch boundaries can split partitions unevenly in event time. |
+| Flush trade in the verifier | Assumed present unless `--no-flush` | `tradegen` adds it when sending; trade files do not contain it. |
+| Generator image | `python:3.13.18-slim-bookworm`, requirements exported from `uv.lock` | Same versions as the tests (numpy decides the random streams). CI fails if the export is stale. |
+| Spark code | Python 3.10 compatible (`per-file-target-version` in ruff) | The official Spark image ships Python 3.10. |
+
+Observed while streaming 60 virtual minutes at 60x (about 1,500 trades/s): batch duration p50 0.9 s, p90 1.8 s, Kafka lag never above 0 at batch end.
+
+Robustness checks run on 2026-11-06 (`scripts/live_check.sh`, 90,071 trades, 6,000 bars, 29 alerts each), all exact (PASS): no faults; Spark SIGKILL and restart from checkpoint; partition-0 leader broker SIGKILL; both faults in the same run (twice). Plus `make golden` from a clean reset, and a second full run over the same data that left `bars` and `alerts` byte-identical (including `written_at`).
+
 ## 2026-11-06
 
 ### S1: versions pinned (task T01)

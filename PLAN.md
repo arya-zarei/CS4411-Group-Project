@@ -450,24 +450,24 @@ Checklist for GitHub issues. "||" means tasks that can run in parallel once thei
 ### M0 Foundation (Nov 6 to 8)
 
 - [ ] **T00** Repo, branch protection, CI (ruff, compose config, tests), README stub. *Done when:* a PR runs CI green.
-- [ ] **T01** Spike S1: confirm and pin versions (section 7.1). *Done when:* `.env.example` pins exact tags and `docs/decisions.md` records them.
-- [ ] **T02** Compose: 3-broker KRaft cluster plus `kafka-init`. *Done when:* `docker compose up kafka-1 kafka-2 kafka-3 kafka-init` ends with healthy brokers and the section 5.2 topics, shown by `kafka-topics --describe` (RF 3, min ISR 2).
-- [ ] **T03** Compose: PostgreSQL with schema, Grafana with provisioned datasource, health checks. *Done when:* Grafana's data source test passes against PostgreSQL.
-- [ ] **T04** Spike S2: Spark image with connector jars, minimal job reads `trades`. *Done when:* a message published with `kafka-console-producer` appears in Spark's output.
-- [ ] **T05** Port the oracle and tests. *Done when:* tests prove oracle output equals `data/sample/*_expected.csv`, and `--check` prints `MATCH`.
-- **Gate G0:** `docker compose up` brings everything healthy, `make test` passes.
+- [x] **T01** Spike S1: confirm and pin versions (section 7.1). *Done when:* `.env.example` pins exact tags and `docs/decisions.md` records them.
+- [x] **T02** Compose: 3-broker KRaft cluster plus `kafka-init`. *Done when:* `docker compose up kafka-1 kafka-2 kafka-3 kafka-init` ends with healthy brokers and the section 5.2 topics, shown by `kafka-topics --describe` (RF 3, min ISR 2).
+- [x] **T03** Compose: PostgreSQL with schema, Grafana with provisioned datasource, health checks. *Done when:* Grafana's data source test passes against PostgreSQL.
+- [x] **T04** Spike S2: Spark image with connector jars, minimal job reads `trades`. *Done when:* a message published with `kafka-console-producer` appears in Spark's output.
+- [x] **T05** Port the oracle and tests. *Done when:* tests prove oracle output equals `data/sample/*_expected.csv`, and `--check` prints `MATCH`.
+- **Gate G0:** `docker compose up` brings everything healthy, `make test` passes. **Passed Nov 6.**
 
 ### M1 End-to-end bars (Nov 9 to 14)
 
 After T05, these three streams are independent because the golden dataset and the oracle define the contract:
 
-- [ ] **T10** (stream 1) `tradegen` core: realtime, virtual, replay, unpaced; seeded; ack log; golden test GEN-1. *Done when:* `tradegen --mode virtual --speed max --seed 42 --minutes 40` equals `trades.csv.gz`, and trades appear in Kafka keyed by symbol.
-- [ ] **T11** (stream 2) Spark bars job: SPK-1 to SPK-7, SPK-9, SPK-11, writing `bars` with upsert. *Done when:* replaying the sample gives all 4,000 bars in PostgreSQL matching `bars_expected.csv`.
-- [ ] **T12** (stream 2) Alerts in the same transaction (5.5), idempotent. *Done when:* `alerts` equals `alerts_expected.csv` (23 rows), and running the job twice over the same data does not change the table.
-- [ ] **T13** (stream 3) Verifier v1 (VER-2, VER-3, VER-5) and `make verify`. *Done when:* the verifier reports zero differences on the T11/T12 output and a nonzero exit when one row is deliberately corrupted.
-- [ ] **T15** (stream 3) `query_progress` listener (SPK-8). *Done when:* rows appear for every batch.
-- [ ] **T14** Golden end-to-end run: replay sample, Spark, PostgreSQL, verify. *Done when:* a single `make golden` ends with PASS.
-- **Gate G1:** `make golden` passes from a clean `make reset`.
+- [x] **T10** (stream 1) `tradegen` core: realtime, virtual, replay, unpaced; seeded; ack log; golden test GEN-1. *Done when:* `tradegen --mode virtual --speed max --seed 42 --minutes 40` equals `trades.csv.gz`, and trades appear in Kafka keyed by symbol.
+- [x] **T11** (stream 2) Spark bars job: SPK-1 to SPK-7, SPK-9, SPK-11, writing `bars` with upsert. *Done when:* replaying the sample gives all 4,000 bars in PostgreSQL matching `bars_expected.csv`.
+- [x] **T12** (stream 2) Alerts in the same transaction (5.5), idempotent. *Done when:* `alerts` equals `alerts_expected.csv` (23 rows), and running the job twice over the same data does not change the table.
+- [x] **T13** (stream 3) Verifier v1 (VER-2, VER-3, VER-5) and `make verify`. *Done when:* the verifier reports zero differences on the T11/T12 output and a nonzero exit when one row is deliberately corrupted.
+- [x] **T15** (stream 3) `query_progress` listener (SPK-8). *Done when:* rows appear for every batch.
+- [x] **T14** Golden end-to-end run: replay sample, Spark, PostgreSQL, verify. *Done when:* a single `make golden` ends with PASS.
+- **Gate G1:** `make golden` passes from a clean `make reset`. **Passed Nov 6.**
 
 ### M2 Output and measurement (Nov 15 to 21)
 
