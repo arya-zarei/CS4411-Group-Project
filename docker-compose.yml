@@ -1,0 +1,156 @@
+# Market-data pipeline. Start everything with: docker compose up --build
+# Image tags default to the versions pinned in spike S1 (docs/decisions.md); .env.example lists the same values.
+
+x-kafka-common: &kafka-common
+  image: ${KAFKA_IMAGE:-apache/kafka:4.4.0}
+  restart: "no"
+  environment: &kafka-env
+    CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"      # shared by all 3 nodes (KRaft)
+    KAFKA_PROCESS_ROLES: broker,controller     # combined mode: every node is a broker and a controller
+    KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093
+    KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+    KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+    KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+    # PLAN.md INF-6: durability settings
+    KAFKA_DEFAULT_REPLICATION_FACTOR: 3
+    KAFKA_MIN_INSYNC_REPLICAS: 2
+    KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+    KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
+    KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 2
+    KAFKA_UNCLEAN_LEADER_ELECTION_ENABLE: "false"
+    KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"   # topics only come from kafka-init, so settings are never silently defaulted
+    KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+    KAFKA_LOG_DIRS: /var/lib/kafka/data
+    KAFKA_HEAP_OPTS: ${KAFKA_HEAP_OPTS:--Xms1g -Xmx1g}
+  healthcheck:
+    test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1"]
+    interval: 10s
+    timeout: 20s
+    retries: 12
+    start_period: 30s
+
+services:
+  kafka-1:
+    <<: *kafka-common
+    hostname: kafka-1
+    container_name: kafka-1
+    ports: ["29092:29092"]            # host access: localhost:29092
+    environment:
+      <<: *kafka-env
+      KAFKA_NODE_ID: 1
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-1:9092,EXTERNAL://localhost:29092
+    volumes: [kafka-1-data:/var/lib/kafka/data]
+
+  kafka-2:
+    <<: *kafka-common
+    hostname: kafka-2
+    container_name: kafka-2
+    ports: ["29093:29093"]
+    environment:
+      <<: *kafka-env
+      KAFKA_NODE_ID: 2
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:29093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-2:9092,EXTERNAL://localhost:29093
+    volumes: [kafka-2-data:/var/lib/kafka/data]
+
+  kafka-3:
+    <<: *kafka-common
+    hostname: kafka-3
+    container_name: kafka-3
+    ports: ["29094:29094"]
+    environment:
+      <<: *kafka-env
+      KAFKA_NODE_ID: 3
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:29094
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-3:9092,EXTERNAL://localhost:29094
+    volumes: [kafka-3-data:/var/lib/kafka/data]
+
+  # Creates the topics from PLAN.md section 5.2, then exits. Safe to run again.
+  kafka-init:
+    image: ${KAFKA_IMAGE:-apache/kafka:4.4.0}
+    container_name: kafka-init
+    restart: "no"
+    depends_on:
+      kafka-1: {condition: service_healthy}
+      kafka-2: {condition: service_healthy}
+      kafka-3: {condition: service_healthy}
+    environment:
+      TRADES_PARTITIONS: ${TRADES_PARTITIONS:-6}
+    volumes: [./infra/kafka/create-topics.sh:/create-topics.sh:ro]
+    entrypoint: ["/bin/bash", "/create-topics.sh"]
+
+  postgres:
+    image: ${POSTGRES_IMAGE:-postgres:18.6}
+    container_name: postgres
+    restart: "no"
+    ports: ["127.0.0.1:5432:5432"]
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-pipeline}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-locally}
+      POSTGRES_DB: ${POSTGRES_DB:-market}
+    volumes:
+      - postgres-data:/var/lib/postgresql     # PostgreSQL 18+ images keep data in a versioned subdirectory of this path
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  grafana:
+    image: ${GRAFANA_IMAGE:-grafana/grafana:13.3.0}
+    container_name: grafana
+    restart: "no"
+    ports: ["127.0.0.1:3000:3000"]
+    depends_on:
+      postgres: {condition: service_healthy}
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-pipeline}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-locally}
+      POSTGRES_DB: ${POSTGRES_DB:-market}
+      GF_AUTH_ANONYMOUS_ENABLED: "true"        # demo convenience: dashboard opens without login (viewer only)
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_USERS_DEFAULT_THEME: dark
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:3000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  # T04 / spike S2: minimal Spark job that prints records from the `trades` topic. Start with: make smoke
+  spark-smoke:
+    profiles: [smoke]
+    build:
+      context: .
+      dockerfile: infra/spark/Dockerfile
+      args:
+        SPARK_IMAGE: ${SPARK_IMAGE:-spark:4.2.1-scala2.13-java17-python3-ubuntu}
+        SPARK_KAFKA_CONNECTOR: ${SPARK_KAFKA_CONNECTOR:-org.apache.spark:spark-sql-kafka-0-10_2.13:4.2.1}
+      secrets: [extra_ca]            # optional proxy CA, see infra/spark/with-extra-ca.sh
+    image: pipeline-spark:local
+    container_name: spark-smoke
+    restart: "no"
+    depends_on:
+      kafka-init: {condition: service_completed_successfully}
+    command: ["/opt/spark/bin/spark-submit", "--master", "local[4]", "/app/smoke_kafka.py"]
+    environment:
+      HOME: /tmp
+
+secrets:
+  extra_ca:
+    file: ${EXTRA_CA_FILE:-/dev/null}   # empty by default; set EXTRA_CA_FILE only behind a TLS-inspecting proxy
+
+volumes:
+  kafka-1-data:
+  kafka-2-data:
+  kafka-3-data:
+  postgres-data:
+  grafana-data:

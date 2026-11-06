@@ -1,0 +1,13 @@
+# Smaller heaps for machines with less than 16 GB (PLAN.md INF-8). Use: make up LITE=1
+# or: docker compose -f docker-compose.yml -f docker-compose.lite.yml up --build -d
+# Not for benchmark runs: all measurements use the default sizes on the benchmark machine.
+services:
+  kafka-1:
+    environment:
+      KAFKA_HEAP_OPTS: -Xms512m -Xmx512m
+  kafka-2:
+    environment:
+      KAFKA_HEAP_OPTS: -Xms512m -Xmx512m
+  kafka-3:
+    environment:
+      KAFKA_HEAP_OPTS: -Xms512m -Xmx512m
