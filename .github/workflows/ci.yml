@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          version: "0.11.32"
+          enable-cache: true
+      - run: uv sync --frozen
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          version: "0.11.32"
+          enable-cache: true
+      - run: uv sync --frozen
+      - run: uv run pytest -q
+      - name: Oracle script reproduces the committed golden dataset
+        run: uv run python tools/gen_sample_dataset.py --out data/sample --check
+
+  compose-config:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Validate docker-compose.yml (all profiles) and the lite override
+        run: |
+          docker compose --profile smoke --profile bench --profile live config -q
+          docker compose -f docker-compose.yml -f docker-compose.lite.yml config -q
