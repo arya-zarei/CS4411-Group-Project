@@ -1,4 +1,6 @@
 # Market-data pipeline. Start everything with: docker compose up --build
+# Fixed project name: volume names (market-pipeline_<volume>) do not depend on the clone's folder name.
+name: market-pipeline
 # Image tags default to the versions pinned in spike S1 (docs/decisions.md); .env.example lists the same values.
 
 x-kafka-common: &kafka-common
@@ -163,6 +165,7 @@ services:
     image: pipeline-spark:local
     container_name: spark-bars
     restart: "no"
+    init: true     # tini as PID 1, so the JVM is an ordinary process and SIGKILL reaches it (SPK-10)
     depends_on:
       kafka-init: {condition: service_completed_successfully}
       postgres: {condition: service_healthy}
@@ -182,12 +185,50 @@ services:
       TRIGGER_INTERVAL: ${TRIGGER_INTERVAL:-1 second}
       WATERMARK_DELAY: ${WATERMARK_DELAY:-10 seconds}
       SINK_MODE: ${SINK_MODE:-upsert}
+      FAULT_AFTER_BATCH: ${FAULT_AFTER_BATCH:-}      # SPK-10, Experiment 4: crash after batch N commits
       CHECKPOINT_DIR: /checkpoints/bars
     volumes:
       - spark-checkpoint:/checkpoints    # survives container kills (INF-5, Experiments 3 and 4)
     cpus: 4
     mem_limit: ${SPARK_MEM_LIMIT:-3g}
     ports: ["127.0.0.1:4040:4040"]     # Spark UI
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:4040/api/v1/applications >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+
+  # Pass-through job (T22): trades -> passthrough_out, micro-batch or continuous. Benchmarks only
+  # (profile bench); never run it together with spark-bars when measuring, they share the 4 cores (PTJ-4).
+  spark-passthrough:
+    profiles: [bench]
+    build: *spark-build
+    image: pipeline-spark:local
+    container_name: spark-passthrough
+    restart: "no"
+    init: true
+    depends_on:
+      kafka-init: {condition: service_completed_successfully}
+    command:
+      - /opt/spark/bin/spark-submit
+      - --master=local[4]
+      - --driver-memory=${SPARK_DRIVER_MEMORY:-2g}
+      - --conf=spark.sql.session.timeZone=UTC
+      - --conf=spark.ui.showConsoleProgress=false
+      - /app/passthrough_job.py
+    environment:
+      HOME: /tmp
+      PT_MODE: ${PT_MODE:-microbatch}
+      TRIGGER_INTERVAL: ${PT_TRIGGER_INTERVAL:-100 milliseconds}
+      CONTINUOUS_CHECKPOINT: ${PT_CONTINUOUS_CHECKPOINT:-1 second}
+      STARTING_OFFSETS: ${PT_STARTING_OFFSETS:-latest}
+      MAX_OFFSETS_PER_TRIGGER: ${PT_MAX_OFFSETS_PER_TRIGGER:-}
+    volumes:
+      - passthrough-checkpoint:/checkpoints
+    cpus: 4
+    mem_limit: ${SPARK_MEM_LIMIT:-3g}
+    ports: ["127.0.0.1:4041:4040"]
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:4040/api/v1/applications >/dev/null || exit 1"]
       interval: 10s
@@ -219,3 +260,4 @@ volumes:
   postgres-data:
   grafana-data:
   spark-checkpoint:
+  passthrough-checkpoint:

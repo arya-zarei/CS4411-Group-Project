@@ -12,11 +12,15 @@ Configuration (environment variables):
   WATERMARK_DELAY          default "10 seconds" (decision D6)
   CHECKPOINT_DIR           default /checkpoints/bars
   SINK_MODE                upsert (default) or insert (SPK-11)
+  FAULT_AFTER_BATCH        SPK-10: SIGKILL the driver right after batch N's transaction commits and
+                           before the batch returns to Spark (fires once per checkpoint; default off)
   PG_DSN                   PostgreSQL connection string
 """
 
 import os
+import signal
 import sys
+import time
 
 import psycopg
 from pyspark.sql import SparkSession
@@ -38,6 +42,7 @@ CHECKPOINT_DIR = os.environ.get("CHECKPOINT_DIR", "/checkpoints/bars")
 SINK_MODE = os.environ.get("SINK_MODE", "upsert")
 PG_DSN = os.environ.get("PG_DSN", "postgresql://pipeline:change-me-locally@postgres:5432/market")
 QUERY_NAME = os.environ.get("QUERY_NAME", "bars")
+FAULT_AFTER_BATCH = os.environ.get("FAULT_AFTER_BATCH", "").strip()
 
 TRADE_SCHEMA = StructType(
     [
@@ -133,6 +138,27 @@ class BatchWriter:
             raise
         if n_bars:
             print(f"[bars_job] batch {batch_id}: {n_bars} bars, {n_alerts} alerts", flush=True)
+        if FAULT_AFTER_BATCH and batch_id == int(FAULT_AFTER_BATCH):
+            crash_after_commit(batch_id)
+
+
+def crash_after_commit(batch_id):
+    """SPK-10. The database transaction for this batch has committed, but Spark has not recorded the
+    batch as done in its checkpoint, so after a restart Spark replays it. With a plain insert the
+    replay writes the batch's rows a second time (Experiment 4). The marker file in the checkpoint
+    volume makes the fault fire once; wiping the checkpoint re-arms it."""
+    marker = os.path.join(os.path.dirname(CHECKPOINT_DIR.rstrip("/")), f"fault-fired-batch-{batch_id}")
+    if os.path.exists(marker):
+        return
+    with open(marker, "w") as f:
+        f.write("fired\n")
+    print(
+        f"[bars_job] FAULT_AFTER_BATCH={batch_id}: committed, now SIGKILL before returning to Spark",
+        flush=True,
+    )
+    time.sleep(0.5)  # our stdout is piped through the JVM: let this line reach the log before the kill
+    os.kill(os.getppid(), signal.SIGKILL)  # the Spark driver JVM (this Python process is its child)
+    os.kill(os.getpid(), signal.SIGKILL)
 
 
 def main():
