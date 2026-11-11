@@ -17,3 +17,5 @@ tzdata==2026.6
     #   pandas
     #   psycopg
     #   python-dateutil
+websockets==17.4
+    # via kafka-spark-pipeline

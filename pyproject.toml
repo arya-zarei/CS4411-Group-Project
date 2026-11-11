@@ -8,6 +8,7 @@ dependencies = [
     "numpy==2.5.3",   # pinned: random streams are only stable per numpy version (data/sample/MANIFEST.json)
     "pandas==3.0.5",
     "psycopg[binary]==3.3.8",
+    "websockets==17.4",
 ]
 
 [dependency-groups]

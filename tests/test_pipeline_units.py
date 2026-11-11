@@ -77,6 +77,11 @@ def test_fractional_sizes_are_kept_for_live_data():
     assert d["size"] == 0.00123
 
 
+def test_live_prices_keep_full_precision():
+    assert json.loads(kafka_value(Trade(1, "DOGE-USD", 1, 0.119812, 10.5)))["price"] == 0.119812
+    assert b'"price":81.3873,' in kafka_value(Trade(1, "SYM078", 1, 81.3873, 25))  # golden format unchanged
+
+
 def test_flush_trade_closes_every_window():
     last = Trade(60163, "SYM001", 1_000_000, 10.0, 1)
     f = flush_trade(last)
@@ -219,6 +224,14 @@ def test_compare_bars_pass_and_each_failure_kind(expected):
     vw = exp_bars.copy()
     vw.loc[7, "vwap"] += 5e-7  # within tolerance
     assert ver.compare_bars(exp_bars, vw)["ok"]
+
+    vol = exp_bars.copy()
+    vol["volume"] = vol["volume"].astype(float)  # fractional sizes, as from a live feed
+    vol.loc[2, "volume"] *= 1 + 1e-15  # summation-order noise: accepted
+    assert ver.compare_bars(exp_bars, vol)["ok"]
+    vol.loc[2, "volume"] += 1  # one share missing: a real error
+    r = ver.compare_bars(exp_bars, vol)
+    assert not r["ok"] and r["mismatches_by_column"]["volume"] == 1
 
 
 def test_compare_alerts(expected):

@@ -135,11 +135,14 @@ class RealtimeModel:
 
 # --- formatting ----------------------------------------------------------------------------------
 def kafka_value(t: Trade) -> bytes:
-    """JSON value of one Kafka message (PLAN.md 4.2). Prices use 4 decimals, exactly like trades.csv.gz."""
+    """JSON value of one Kafka message (PLAN.md 4.2)."""
     size = t.size if isinstance(t.size, int) else repr(float(t.size))
+    # 4 decimals, exactly like trades.csv.gz, whenever that loses nothing (all synthetic prices);
+    # full precision otherwise (live crypto prices such as 0.119812).
+    price = f"{t.price:.4f}" if round(t.price, 4) == t.price else repr(float(t.price))
     return (
         f'{{"trade_id":{t.trade_id},"symbol":"{t.symbol}","event_time_ms":{t.event_time_ms},'
-        f'"price":{t.price:.4f},"size":{size}}}'
+        f'"price":{price},"size":{size}}}'
     ).encode()
 
 

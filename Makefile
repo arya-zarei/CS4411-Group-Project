@@ -7,6 +7,7 @@ endif
 
 .DEFAULT_GOAL := help
 .PHONY: help up build down reset logs ps topics test lint fmt smoke golden verify requirements dashboard \
+	demo-live demo-offline \
 	bench-e1a bench-e1b bench-e1c bench-e2 bench-e3 bench-e4 bench-all bench-dry
 
 help:  ## List targets
@@ -50,6 +51,15 @@ golden:  ## Gate G1: reset, replay data/sample through Kafka and Spark, verify (
 TRADES ?= data/sample/trades.csv.gz
 verify:  ## Verify PostgreSQL bars and alerts against TRADES (default: the golden sample)
 	uv run python -m verify.verify --trades $(TRADES) $(VERIFY_ARGS)
+
+DEMO_SERVICES := kafka-1 kafka-2 kafka-3 postgres grafana spark-bars
+demo-live:  ## Live demo on Coinbase trades (T27); captures to runs/captures/, replays one if the feed is silent
+	$(COMPOSE) --profile live up --build -d --wait $(DEMO_SERVICES) coinbase
+
+demo-offline:  ## Live demo without network: replay the newest capture in runs/captures/ (LIVE-4)
+	$(COMPOSE) --profile live up --build -d --wait $(DEMO_SERVICES)
+	$(COMPOSE) --profile live run -d --rm --no-deps --name coinbase-offline coinbase \
+	  --mode=live-coinbase --offline --capture-dir=/runs/captures --acks=all
 
 dashboard:  ## Regenerate infra/grafana/dashboards/pipeline.json from tools/make_dashboard.py
 	uv run python tools/make_dashboard.py

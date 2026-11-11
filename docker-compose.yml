@@ -153,6 +153,26 @@ services:
       - ./data:/data:ro
       - ./runs:/runs
 
+  # Live demo producer (T27): Coinbase public trades, captured to runs/captures/, falling back to the
+  # newest capture when the feed is silent for 30 s. Profile live; use instead of `generator`:
+  #   make demo-live          make demo-offline (replay the newest capture, no network)
+  coinbase:
+    profiles: [live]
+    image: pipeline-generator:local
+    container_name: coinbase
+    restart: "no"
+    depends_on:
+      kafka-init: {condition: service_completed_successfully}
+    command:
+      - --mode=live-coinbase
+      - --save=/runs/captures/coinbase-live.jsonl
+      - --capture-dir=/runs/captures
+      - --fallback-after=30
+      - --acks=all
+      - --products=BTC-USD,ETH-USD,SOL-USD,XRP-USD,DOGE-USD,ADA-USD,AVAX-USD,LINK-USD,LTC-USD,BCH-USD
+    volumes:
+      - ./runs:/runs
+
   # Spark Structured Streaming bars and alerts job (T11, T12, T15). local[4] in one container (decision D2).
   spark-bars:
     build: &spark-build

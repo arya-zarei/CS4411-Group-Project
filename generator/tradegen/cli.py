@@ -5,6 +5,8 @@ Examples:
   tradegen --mode virtual --speed max --minutes 40 --seed 42 --dump-csv /tmp/t.csv   (no Kafka needed)
   tradegen --mode replay --file data/sample/trades.csv.gz --speed max
   tradegen --mode realtime --rate 5000 --duration 300 --acks all --run-id r001 --log-trades
+  tradegen --mode live-coinbase --save runs/captures/coinbase.jsonl          (live demo, T27)
+  tradegen --mode live-coinbase --offline --replay-file runs/captures/coinbase.jsonl
 """
 
 from __future__ import annotations
@@ -31,7 +33,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap = argparse.ArgumentParser(
         prog="tradegen", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    ap.add_argument("--mode", choices=["virtual", "realtime", "replay"], required=True)
+    ap.add_argument("--mode", choices=["virtual", "realtime", "replay", "live-coinbase"], required=True)
     # virtual
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--minutes", type=int, default=40, help="virtual minutes to generate")
@@ -50,7 +52,26 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--file", type=Path, help="CSV(.gz) or JSON lines to replay")
     # realtime
     ap.add_argument("--rate", type=float, default=1000, help="trades per second (realtime)")
-    ap.add_argument("--duration", type=float, default=60, help="seconds (realtime)")
+    ap.add_argument(
+        "--duration",
+        type=float,
+        default=None,
+        help="seconds (realtime: default 60; live-coinbase: until stopped)",
+    )
+    # live-coinbase (T27, LIVE-1 to LIVE-6)
+    ap.add_argument("--products", default=None, help="comma-separated Coinbase product ids (10 by default)")
+    ap.add_argument("--url", default=None, help="WebSocket URL (default: Coinbase's public market-data feed)")
+    ap.add_argument("--save", type=Path, help="LIVE-3: append every live trade to this capture (JSON lines)")
+    ap.add_argument(
+        "--replay-file", type=Path, help="LIVE-4: capture to replay (default: --save, else the newest)"
+    )
+    ap.add_argument(
+        "--capture-dir", type=Path, default=Path("runs/captures"), help="where to look for captures"
+    )
+    ap.add_argument("--offline", action="store_true", help="LIVE-4: replay a capture without connecting")
+    ap.add_argument(
+        "--fallback-after", type=float, default=30.0, help="LIVE-4: seconds without trades before replaying"
+    )
     # output
     ap.add_argument("--bootstrap", default=DEFAULT_BOOTSTRAP)
     ap.add_argument("--topic", default="trades")
@@ -77,6 +98,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     if a.log_trades and not a.run_id:
         ap.error("--log-trades needs --run-id")
     a.speed = None if str(a.speed).lower() == "max" else float(a.speed)
+    if a.duration is None and a.mode == "realtime":
+        a.duration = 60.0
     if a.idempotence is None:
         a.idempotence = "true" if a.acks == "all" else "false"
     elif a.idempotence == "true" and a.acks != "all":
@@ -136,6 +159,51 @@ def realtime_source(a: argparse.Namespace):
             time.sleep(tick / 2)
 
 
+def live_source(a: argparse.Namespace):
+    """Coinbase trades (or the capture replay) from a background thread, as an ordinary trade source."""
+    import asyncio
+    import queue
+    import threading
+
+    from . import coinbase as cb
+
+    products = (a.products or cb.DEFAULT_PRODUCTS).split(",")
+    q: queue.Queue = queue.Queue(maxsize=200_000)
+    done = object()
+
+    def worker() -> None:
+        src = cb.LiveSource(q.put, a.save)
+        stop_at = time.monotonic() + (a.duration if a.duration else 1e12)
+        try:
+            live_ok = True
+            if not a.offline:
+                live_ok = asyncio.run(cb.run_live(src, products, a.url or cb.URL, stop_at, a.fallback_after))
+            if (a.offline or not live_ok) and time.monotonic() < stop_at:
+                capture = a.replay_file or (
+                    a.save if a.save and a.save.exists() else cb.latest_capture(a.capture_dir)
+                )
+                if capture is None or not Path(capture).exists():
+                    print("[coinbase] no live trades and no capture to replay: stopping", flush=True)
+                else:
+                    print(
+                        f"[coinbase] switching to replay ({'offline' if a.offline else 'feed silent'})",
+                        flush=True,
+                    )
+                    cb.replay_capture(src, Path(capture), stop_at)
+        finally:
+            src.close()
+            print(
+                f"[coinbase] live trades {src.live_trades}, replayed {src.replayed_trades}, "
+                f"reconnects {src.reconnects}",
+                flush=True,
+            )
+            q.put(done)
+
+    threading.Thread(target=worker, daemon=True).start()
+    while (item := q.get()) is not done:
+        yield item
+
+
 def main(argv: list[str] | None = None) -> int:
     a = parse_args(argv)
     if a.mode == "virtual":
@@ -144,6 +212,14 @@ def main(argv: list[str] | None = None) -> int:
     elif a.mode == "replay":
         params = {"file": str(a.file)}
         source = paced(replay_trades(a.file), a.speed)
+    elif a.mode == "live-coinbase":
+        params = {
+            "products": a.products,
+            "url": a.url,
+            "save": str(a.save) if a.save else None,
+            "offline": a.offline,
+        }
+        source = live_source(a)
     else:
         params = {"rate": a.rate, "duration": a.duration, "seed": a.seed, "symbols": a.symbols}
         source = realtime_source(a)

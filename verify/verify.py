@@ -7,7 +7,9 @@ to PostgreSQL, and compares. Exits 0 on PASS and 1 on FAIL, and writes a JSON re
   python -m verify.verify --trades runs/demo/trades.csv --wait 300      # wait for the job to finish first
 
 Rules:
-* Bars: open, high, low, close, volume, trade_count and window_end must match exactly; VWAP within 1e-6.
+* Bars: open, high, low, close, trade_count and window_end must match exactly; VWAP within 1e-6;
+  volume within a relative 1e-9 (exact for whole-number sizes; fractional crypto sizes summed in a
+  different order differ in the last bits).
 * Alerts: the set of (symbol, window_start) must match; z-score and the other values within 1e-6.
   Alerts whose |z| is within 1e-9 of the threshold are ignored on both sides (floating-point ties).
 * The reserved ``__FLUSH__`` trade is ignored for bars. Unless ``--no-flush`` is given, the verifier
@@ -36,9 +38,10 @@ from verify import reference as ref
 FLUSH_SYMBOL = "__FLUSH__"
 FLUSH_DELAY_MS = 120_000  # tradegen sends __FLUSH__ two minutes after the last trade (PLAN.md 4.3)
 VWAP_TOL = 1e-6
+VOLUME_REL_TOL = 1e-9  # fractional (crypto) sizes: summation order changes the last bits of the total
 ALERT_TOL = 1e-6
 BOUNDARY_TOL = 1e-9
-EXACT_BAR_COLS = ["window_end_ms", "open", "high", "low", "close", "volume", "trade_count"]
+EXACT_BAR_COLS = ["window_end_ms", "open", "high", "low", "close", "trade_count"]
 ALERT_VALUE_COLS = ["close", "log_return", "baseline_mean", "baseline_std", "z_score"]
 KEY = ["symbol", "window_start_ms"]
 MAX_EXAMPLES = 10
@@ -108,6 +111,9 @@ def compare_bars(expected: pd.DataFrame, actual: pd.DataFrame, uncertain: pd.Dat
         diff = merged[f"{c}_exp"] != merged[f"{c}_act"]
         per_col[c] = int(diff.sum())
         bad |= diff
+    vol = (merged["volume_exp"] - merged["volume_act"]).abs() > VOLUME_REL_TOL * merged["volume_exp"].abs()
+    per_col["volume"] = int(vol.sum())
+    bad |= vol
     vdiff = (merged["vwap_exp"] - merged["vwap_act"]).abs() > VWAP_TOL
     per_col["vwap"] = int(vdiff.sum())
     bad |= vdiff
