@@ -41,6 +41,7 @@ known-first-party = ["alert_rule", "sink", "progress_listener", "tradegen", "ver
 [tool.ruff.lint.per-file-ignores]
 # Oracle code and its verbatim copy (B007: loop variable `sym` unused).
 "tools/gen_sample_dataset.py" = ["B007", "E501", "UP"]
+"tools/make_dashboard.py" = ["E501"]  # SQL strings read better unwrapped
 "verify/reference.py" = ["B007"]
 
 [tool.pytest.ini_options]
