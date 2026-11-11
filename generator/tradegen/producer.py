@@ -2,7 +2,10 @@
 
 * Every send registers a delivery callback. Counts of acked and failed sends are always kept.
 * With an ack log (GEN-2), each trade's outcome is appended to ``acks.csv`` in batches:
-  ``trade_id,acked,partition,offset,error``. That file is the ground truth for loss detection (VER-1).
+  ``trade_id,acked,partition,offset,error,ack_ms``. That file is the ground truth for loss detection
+  (VER-1); ``ack_ms`` (wall clock when the delivery report arrived) gives the write stall in
+  Experiment 2. Delivery reports are served every ``POLL_EVERY`` sends, so ack_ms is accurate to
+  about POLL_EVERY / rate seconds.
 * When the local queue is full (GEN-3) the producer waits for deliveries instead of dropping trades,
   and counts how often it had to wait.
 """
@@ -18,6 +21,7 @@ from confluent_kafka import KafkaError, Producer
 from .model import Trade, kafka_value
 
 ACK_LOG_FLUSH_EVERY = 20_000
+POLL_EVERY = 50
 
 
 class TradeProducer:
@@ -30,7 +34,7 @@ class TradeProducer:
         self.first_error: str | None = None
         self._ack_file = open(ack_log, "w", buffering=1 << 20) if ack_log else None  # noqa: SIM115
         if self._ack_file:
-            self._ack_file.write("trade_id,acked,partition,offset,error\n")
+            self._ack_file.write("trade_id,acked,partition,offset,error,ack_ms\n")
         self._ack_rows: list[str] = []
 
     # delivery callbacks run inside poll()/flush() on this thread
@@ -43,10 +47,11 @@ class TradeProducer:
 
     def _log(self, trade_id: int, err: KafkaError | None, msg) -> None:
         self._count(err, msg)
+        now_ms = int(time.time() * 1000)
         if err is None:
-            self._ack_rows.append(f"{trade_id},1,{msg.partition()},{msg.offset()},\n")
+            self._ack_rows.append(f"{trade_id},1,{msg.partition()},{msg.offset()},,{now_ms}\n")
         else:
-            self._ack_rows.append(f"{trade_id},0,,,{err.name()}\n")
+            self._ack_rows.append(f"{trade_id},0,,,{err.name()},{now_ms}\n")
         if len(self._ack_rows) >= ACK_LOG_FLUSH_EVERY:
             self._flush_ack_rows()
 
@@ -67,7 +72,7 @@ class TradeProducer:
                 self.backpressure_waits += 1
                 self.producer.poll(0.05)
         self.attempted += 1
-        if self.attempted % 1000 == 0:
+        if self.attempted % POLL_EVERY == 0:
             self.producer.poll(0)
 
     def close(self, timeout_s: float = 120.0) -> int:

@@ -245,7 +245,12 @@ def wait_for_pipeline(conn, sink: str, timeout_s: float, stable_s: float = 10.0)
 def run(args: argparse.Namespace) -> dict:
     import psycopg
 
-    trades = load_trades(args.trades)
+    if args.from_topic:  # VER-2 (b): expected bars from the topic's actual contents
+        from verify.kafka_layer import read_topic
+
+        trades = read_topic(args.topic)[["trade_id", "symbol", "event_time_ms", "price", "size"]]
+    else:  # VER-2 (a): expected bars from the trades the generator produced
+        trades = load_trades(args.trades)
     if not args.no_flush:
         trades = with_flush(trades)
     exp_bars, exp_alerts, uncertain, cutoff = expected_output(trades, args.watermark_ms)
@@ -253,7 +258,7 @@ def run(args: argparse.Namespace) -> dict:
         waited = wait_for_pipeline(conn, args.sink, args.wait) if args.wait else {"waited": False}
         act_bars, act_alerts = read_actual(conn, args.sink)
     report = {
-        "trades_file": str(args.trades),
+        "expected_from": f"topic {args.topic}" if args.from_topic else str(args.trades),
         "sink": args.sink,
         "watermark_ms": args.watermark_ms,
         "cutoff_ms": cutoff,
@@ -282,12 +287,16 @@ def summary_line(report: dict) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument(
-        "--trades",
-        type=Path,
-        required=True,
-        help="trade file the run was produced from (CSV, .gz, JSON lines)",
+    src = ap.add_mutually_exclusive_group(required=True)
+    src.add_argument(
+        "--trades", type=Path, help="trade file the run was produced from (CSV, .gz, JSON lines)"
     )
+    src.add_argument(
+        "--from-topic",
+        action="store_true",
+        help="VER-2 (b): expected output from the topic's actual contents",
+    )
+    ap.add_argument("--topic", default="trades")
     ap.add_argument("--shocks", type=Path, help="shocks.json, for the informational VER-4 report")
     ap.add_argument("--sink", choices=["upsert", "insert"], default="upsert")
     ap.add_argument("--dsn", default=DEFAULT_DSN)
