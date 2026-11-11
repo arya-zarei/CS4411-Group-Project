@@ -120,6 +120,7 @@ def test_experiment_configs_load(name):
         ids = [s["id"] for s in settings]
         assert len(ids) == len(set(ids)), "setting ids must be unique (they name result folders)"
         assert params.get("repeats", 3) == 3, "the proposal requires three runs per setting"
+        assert all(s.get("repeats", 3) >= 3 for s in settings), "never fewer than three runs"
     _, dry_settings = load_config(name, True)
     assert any(not s.get("skip") for s in dry_settings), "every experiment needs a dry run"
 

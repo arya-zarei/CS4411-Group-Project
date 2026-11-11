@@ -1,7 +1,7 @@
 # E1b, reproduction (b): pass-through latency versus input rate in continuous mode, against the
 # maximum throughput of micro-batch mode (Armbrust et al. 2018, Figure 7, also a 4-core machine).
 # Partitions are capped at 4 = the cores of local[4]: with 6, continuous mode stops processing two
-# partitions (spike S3, 2026-11-11).
+# partitions (spike S3, 2026-11-11). Ladders set from one-minute capacity probes on 2026-11-11.
 params:
   repeats: 3
   duration_s: 300
@@ -15,12 +15,13 @@ settings:
   - id: continuous-p4
     mode: continuous
     partitions: 4
-    rates: [1000, 5000, 10000, 20000, 40000]
+    rates: [5000, 10000, 20000, 40000, 80000]
+    params: {duration_s: 120, warmup_s: 20}   # a latency curve, not a sustained-throughput test
     dry_run: {rates: [1000]}
   - id: microbatch-p4-100ms
     mode: microbatch
     partitions: 4
     trigger: 100 milliseconds
     search_throughput: true
-    rates: [5000, 10000, 20000, 40000, 80000]
+    rates: [40000, 80000, 100000]   # probes (2026-11-11): kept up at 80k/s; the generator tops out near 100k/s
     dry_run: {rates: [2000]}

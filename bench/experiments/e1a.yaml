@@ -1,18 +1,22 @@
 # E1a, reproduction (a): producer throughput without and with batching (Kreps et al. 2011, Figure 4).
-# Runs Kafka's own kafka-producer-perf-test inside kafka-1 against `perf_test` (1 partition, RF 1).
-# The paper counts batches in messages; the Java producer's batch.size is in bytes. Each setting's
-# batch.size is (messages x 200 bytes); per-record overhead means a batch holds slightly fewer.
-# Re-read the paper's setup before the full run and log any deviation in docs/decisions.md (T25).
+# Paper setup (section 5): a single producer publishes 10 million messages of 200 bytes, in batches of
+# 1 and 50 messages, without waiting for acknowledgements; one broker, no replication, flushing
+# asynchronously. Reported: about 50,000 and 400,000 messages/s.
+# Here: Kafka's own kafka-producer-perf-test inside kafka-1 against `perf_test` (1 partition, RF 1),
+# acks=0. Deviations (docs/decisions.md): the Java producer's batch.size is in bytes, so a batch of n
+# messages is approximated as n x 200 bytes (per-record overhead makes it hold slightly fewer); "no
+# batching" is batch.size=0; producer and broker share one 4-core machine (the paper used two 8-core
+# machines). The intermediate sizes (10, 100, 200) show the shape of the curve.
 params:
   repeats: 3
-  num_records: 2000000
+  num_records: 10000000     # as in the paper
   record_size: 200          # bytes, as in the paper
-  acks: 1
+  acks: 0                   # "the Kafka producer currently doesn't wait for acknowledgements"
 dry_run:
   num_records: 100000
 settings:
-  - {id: no-batching, batch_size: 0, linger_ms: 0}
+  - {id: batch-1, batch_size: 0, linger_ms: 0}          # paper: batch size 1
   - {id: batch-10, batch_size: 2000, linger_ms: 10}
-  - {id: batch-50, batch_size: 10000, linger_ms: 10}
+  - {id: batch-50, batch_size: 10000, linger_ms: 10}    # paper: batch size 50
   - {id: batch-100, batch_size: 20000, linger_ms: 10}
   - {id: batch-200, batch_size: 40000, linger_ms: 10}

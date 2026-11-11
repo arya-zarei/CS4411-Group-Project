@@ -15,5 +15,6 @@ dry_run:
   mean_rate_per_symbol: 0.25
 settings:
   - {id: acks-all, acks: all}                       # idempotence on (tradegen default with acks=all)
-  - {id: acks-1, acks: "1"}                         # idempotence off (required with acks=1)
+  - {id: acks-1, acks: "1", repeats: 6}             # idempotence off (required with acks=1); more kills,
+                                                    # because loss happens only on some kills
   - {id: acks-all-no-idempotence, acks: all, idempotence: false, dry_run: {skip: true}}  # stretch goal

@@ -13,6 +13,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "matplotlib==3.11.2",
     "pytest>=8",
     "pyyaml>=6.0.3",
     "ruff>=0.8",
@@ -43,6 +44,7 @@ known-first-party = ["alert_rule", "sink", "progress_listener", "tradegen", "ver
 # Oracle code and its verbatim copy (B007: loop variable `sym` unused).
 "tools/gen_sample_dataset.py" = ["B007", "E501", "UP"]
 "tools/make_dashboard.py" = ["E501"]  # SQL strings read better unwrapped
+"bench/summarize.py" = ["E501"]       # figure titles and labels
 "verify/reference.py" = ["B007"]
 
 [tool.pytest.ini_options]

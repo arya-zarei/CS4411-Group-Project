@@ -99,6 +99,12 @@ def machine_info() -> dict:
     """Specs recorded with every run (PLAN.md 4.5)."""
     info: dict = {"cpus": os.cpu_count()}
     try:
+        info["cpu_model"] = next(
+            line.split(":", 1)[1].strip() for line in open("/proc/cpuinfo") if line.startswith("model name")
+        )
+    except (OSError, StopIteration):
+        pass
+    try:
         mem_kb = next(int(line.split()[1]) for line in open("/proc/meminfo") if line.startswith("MemTotal"))
         info["mem_gb"] = round(mem_kb / 1024 / 1024, 1)
     except (OSError, StopIteration):

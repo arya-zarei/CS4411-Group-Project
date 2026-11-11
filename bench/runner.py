@@ -486,7 +486,8 @@ def run_experiment(
     for s in settings:
         if (only and only not in s["id"]) or (dry and s.get("skip")):
             continue
-        for rep in range(1, repeats + 1):
+        n = 1 if dry else s.get("repeats", repeats)  # a setting may ask for more runs (E2 acks=1)
+        for rep in range(1, n + 1):
             out = results / name / s["id"] / f"rep{rep}"
             if (out / "result.json").exists():
                 print(f"[{name}] {s['id']} rep{rep}: done already, skipping")
@@ -495,7 +496,8 @@ def run_experiment(
             out.mkdir(parents=True, exist_ok=True)
             (out / "error.json").unlink(missing_ok=True)
             config = {
-                "experiment": name, "setting": s, "repeat": rep, "dry_run": dry, "params": params,
+                "experiment": name, "setting": s, "repeat": rep, "dry_run": dry,
+                "params": {**params, **s.get("params", {})},
                 "git_commit": git_commit(), "started_at": datetime.now(UTC).isoformat(),
                 "machine": stack.machine_info(),
             }  # fmt: skip
@@ -503,7 +505,7 @@ def run_experiment(
             print(f"[{name}] {s['id']} rep{rep}: running", flush=True)
             t0 = time.monotonic()
             try:
-                result = EXPERIMENTS[name](s, params, out)
+                result = EXPERIMENTS[name](s, {**params, **s.get("params", {})}, out)
             except Exception as exc:  # noqa: BLE001  record and continue with the next run
                 (out / "error.json").write_text(
                     json.dumps({"error": repr(exc), "traceback": traceback.format_exc()}, indent=2)
