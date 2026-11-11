@@ -6,10 +6,12 @@ COMPOSE := docker compose -f docker-compose.yml -f docker-compose.lite.yml
 endif
 
 .DEFAULT_GOAL := help
-.PHONY: help up build down reset logs ps topics test lint fmt smoke golden verify requirements
+.PHONY: help up build down reset logs ps topics test lint fmt smoke golden verify requirements dashboard \
+	bench-e1a bench-e1b bench-e1c bench-e2 bench-e3 bench-e4 bench-all bench-dry
 
 help:  ## List targets
 	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-8s %s\n", $$1, $$2}'
+	@echo "  bench-<e1a|e1b|e1c|e2|e3|e4|all>  Run an experiment: 3 runs per setting, resumable (BENCH_ARGS=--dry-run)"
 	@echo "  (add LITE=1 to use docker-compose.lite.yml on machines with less RAM)"
 
 up:  ## Build and start everything (live demo: generator at 30x, Spark, Grafana); wait until healthy
@@ -48,6 +50,17 @@ golden:  ## Gate G1: reset, replay data/sample through Kafka and Spark, verify (
 TRADES ?= data/sample/trades.csv.gz
 verify:  ## Verify PostgreSQL bars and alerts against TRADES (default: the golden sample)
 	uv run python -m verify.verify --trades $(TRADES) $(VERIFY_ARGS)
+
+dashboard:  ## Regenerate infra/grafana/dashboards/pipeline.json from tools/make_dashboard.py
+	uv run python tools/make_dashboard.py
+
+# One experiment (or all of them, in PLAN.md 5.9 priority order): three runs per setting, resumable.
+# Explicit targets, because make never applies pattern rules to .PHONY targets.
+bench-e1a bench-e1b bench-e1c bench-e2 bench-e3 bench-e4 bench-all:
+	uv run python -m bench.runner $(@:bench-%=%) $(BENCH_ARGS)
+
+bench-dry:  ## Dry run of every experiment: short runs, one repeat, results/raw-dry/
+	uv run python -m bench.runner all --dry-run $(BENCH_ARGS)
 
 requirements:  ## Re-export infra/generator/requirements.txt from uv.lock
 	uv export --frozen --no-dev --no-hashes --no-header --no-emit-project --format requirements-txt -o infra/generator/requirements.txt

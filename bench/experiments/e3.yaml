@@ -1,0 +1,19 @@
+# E3: Spark crash. SIGKILL the Spark container mid-run and restart it at once with the same checkpoint.
+# Recovery time = kill to the first batch committed after the restart, and to the first new bar
+# written. Correctness = VER-2/VER-3 against the generator's trades.
+# live: a paced virtual-mode stream (realistic timing).
+# deterministic: the golden dataset preloaded, fixed maxOffsetsPerTrigger, kill once batch N has
+# completed, so batch boundaries and therefore the correctness numbers repeat exactly.
+params:
+  repeats: 3
+  minutes: 40
+  speed: 10
+  kill_at_fraction: 0.5
+  down_s: 0
+  max_offsets_per_trigger: 5000
+  kill_after_batch: 5
+dry_run:
+  speed: 60
+settings:
+  - {id: live, mode: live}
+  - {id: deterministic, mode: deterministic}

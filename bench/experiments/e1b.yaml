@@ -1,0 +1,26 @@
+# E1b, reproduction (b): pass-through latency versus input rate in continuous mode, against the
+# maximum throughput of micro-batch mode (Armbrust et al. 2018, Figure 7, also a 4-core machine).
+# Partitions are capped at 4 = the cores of local[4]: with 6, continuous mode stops processing two
+# partitions (spike S3, 2026-11-11).
+params:
+  repeats: 3
+  duration_s: 300
+  warmup_s: 30              # discarded: the first seconds after start are dominated by JVM warm-up
+  settle_s: 10
+dry_run:
+  duration_s: 20
+  warmup_s: 5
+  settle_s: 5
+settings:
+  - id: continuous-p4
+    mode: continuous
+    partitions: 4
+    rates: [1000, 5000, 10000, 20000, 40000]
+    dry_run: {rates: [1000]}
+  - id: microbatch-p4-100ms
+    mode: microbatch
+    partitions: 4
+    trigger: 100 milliseconds
+    search_throughput: true
+    rates: [5000, 10000, 20000, 40000, 80000]
+    dry_run: {rates: [2000]}

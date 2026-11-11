@@ -15,6 +15,7 @@ venv/
 # Run outputs (large, reproducible)
 runs/
 results/raw/
+results/raw-dry/
 *.jsonl
 !data/sample/*.json
 

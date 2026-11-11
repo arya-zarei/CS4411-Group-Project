@@ -1,0 +1,23 @@
+# E4: what exactly-once output costs. SINK_MODE=insert (plain insert into bars_plain/alerts_plain)
+# versus upsert (insert-or-update on (symbol, window_start)).
+# crash: deterministic replay of the golden dataset; SPK-10 kills Spark after batch N's transaction
+#        commits but before Spark records the batch, so the restart replays it. Expected: duplicate
+#        rows for insert, none for upsert.
+# cost:  crash-free runs at the same input rate: batch duration, bar latency, keeps up (D5).
+params:
+  repeats: 3
+  max_offsets_per_trigger: 5000
+  fault_after_batch: 5
+  rate: 2000
+  duration_s: 300
+  warmup_s: 70
+  settle_s: 10
+dry_run:
+  duration_s: 60
+  warmup_s: 0
+  settle_s: 5
+settings:
+  - {id: insert-crash, kind: crash, sink: insert}
+  - {id: upsert-crash, kind: crash, sink: upsert}
+  - {id: insert-cost, kind: cost, sink: insert}
+  - {id: upsert-cost, kind: cost, sink: upsert}

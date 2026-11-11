@@ -1,0 +1,19 @@
+# E2: broker crash. SIGKILL the broker leading partition 0 of `trades` halfway through a virtual-mode
+# run (RF 3, min ISR 2), with the producer waiting for one copy (acks=1) or all in-sync copies.
+# Measures: longest gap between acks (write stall), lost and duplicated trades (VER-1), and bar
+# correctness against the generator (VER-2 a) and against the topic's contents (VER-2 b).
+# acks=1 loses data only if the killed leader had acknowledged records not yet replicated, which
+# may not happen on every kill: repeat enough kills to estimate a rate, and report zero honestly.
+params:
+  repeats: 3
+  minutes: 40
+  speed: 10                  # 240 s wall time
+  mean_rate_per_symbol: 1.0  # 100 trades per virtual second: about 240,000 trades, 1,000 per wall second
+  kill_at_fraction: 0.5
+dry_run:
+  speed: 60                  # 40 s wall time
+  mean_rate_per_symbol: 0.25
+settings:
+  - {id: acks-all, acks: all}                       # idempotence on (tradegen default with acks=all)
+  - {id: acks-1, acks: "1"}                         # idempotence off (required with acks=1)
+  - {id: acks-all-no-idempotence, acks: all, idempotence: false, dry_run: {skip: true}}  # stretch goal

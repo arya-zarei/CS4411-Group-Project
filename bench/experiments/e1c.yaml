@@ -1,0 +1,19 @@
+# E1c: the real bars pipeline. Sustained throughput (decision D5) and bar latency p50/p95/p99 while
+# varying partitions at the default trigger, and the trigger at the default partition count (the
+# reduced 6-cell grid, PLAN.md 5.9). Realtime mode only: latency needs wall-clock event times.
+params:
+  repeats: 3
+  duration_s: 300
+  warmup_s: 70              # skip the first windows: they include Spark's warm-up
+  settle_s: 10
+dry_run:
+  duration_s: 75
+  warmup_s: 0
+  settle_s: 5
+settings:
+  - {id: p6-1s, partitions: 6, trigger: 1 second, rates: [1000, 2500, 5000, 10000, 20000, 40000], dry_run: {rates: [1000]}}
+  - {id: p1-1s, partitions: 1, trigger: 1 second, rates: [1000, 2500, 5000, 10000, 20000, 40000], dry_run: {skip: true}}
+  - {id: p3-1s, partitions: 3, trigger: 1 second, rates: [1000, 2500, 5000, 10000, 20000, 40000], dry_run: {skip: true}}
+  - {id: p6-100ms, partitions: 6, trigger: 100 milliseconds, rates: [1000, 2500, 5000, 10000, 20000, 40000], dry_run: {skip: true}}
+  - {id: p6-500ms, partitions: 6, trigger: 500 milliseconds, rates: [1000, 2500, 5000, 10000, 20000, 40000], dry_run: {skip: true}}
+  - {id: p6-5s, partitions: 6, trigger: 5 seconds, rates: [1000, 2500, 5000, 10000, 20000, 40000], dry_run: {skip: true}}
