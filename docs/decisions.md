@@ -2,6 +2,50 @@
 
 Every decision and every deviation from the proposal or `PLAN.md`, newest first. Format: date, ID, decision, reason.
 
+## 2026-11-11 (M2)
+
+### Spike S3: continuous mode needs a free core per partition
+
+On `local[4]`, the pass-through job in continuous mode moved 14,997 of 14,997 records with 3 and with 4 partitions, but only 9,881 of 14,997 with 6: two partitions never got a task (risk R4). **E1b uses 4 partitions** for continuous mode, and micro-batch runs use the same count so the two modes are compared fairly.
+
+### Spike S4: one Python generator is enough (decision D9 stands)
+
+`tradegen --mode realtime` into `trades` (3 brokers, RF 3, acks=all, idempotence on), 10 s per step, nothing else running: 9,963/s, 24,901/s, 49,846/s and 99,679/s achieved for targets of 10k, 25k, 50k and 100k per second, every trade acked, no backpressure. The experiment ladders top out at 80k/s (E1b) and 40k/s (E1c). When Spark shares the 4 cores the generator may fall short; the harness marks such a step `generator_limited` and stops the ladder there instead of reporting Spark's limit.
+
+### Measurement choices (T23, T24)
+
+| Topic | Choice | Reason |
+|---|---|---|
+| Warm-up | Discard the first 30 s (pass-through) and 70 s (bars) of each measured run | Measured: micro-batch pass-through p50 fell from 434 ms in the first 10 s to about 190 ms after 40 s (JVM and connection warm-up). Without this, E1b looked 20 times slower. |
+| D5 "keeps up" | Scaled to the run length: end lag (median of the last 5%) at most the largest lag in the first 20%, and slope over the last 80% below 1% of the rate | The D5 wording assumes exactly five minutes; dry runs are shorter. Identical to D5 for a five-minute run. |
+| Lag source | Pass-through: input end offsets minus output end offsets. Bars: input end offsets minus the end offsets of Spark's latest batch (`query_progress`) | Both measured outside Spark's own metrics, sampled every second. |
+| E2 write stall | Longest gap between acks **within one partition**; the gap across all partitions is kept too | Found in the E2 dry run: with acks=1 only the partitions the dead broker led stall (about 12 s); the other partitions keep acking, so a gap across all partitions showed only 67 ms. With acks=all every partition stalls about 11 s, because the dead broker is a follower in every partition's in-sync replica set until Kafka removes it. Ack times are recorded in the ack log (`ack_ms`, accurate to about 50 sends). |
+| E3 recovery | Kill to the first progress event after the restart, and to the first new bar row | The progress event is written when a batch finishes, so the first new bar can come slightly earlier. |
+| E1a | `kafka-producer-perf-test` inside the kafka-1 container, `--command-property` (the 4.4 name; `--producer-props` is deprecated), 200-byte records, acks=1, batch.size = messages x 200 bytes | Batches in bytes only approximate the paper's batches in messages (per-record overhead). **Still to do before the full run (T25):** re-read Kreps et al. Figure 4's setup and log any further deviation here. |
+| **Deviation from T24's "about one minute":** dry-run length | 1 to 2 minutes per setting, about 20 minutes for `make bench-dry` | Every run starts from a known state (PLAN.md 5.9): a full stack reset (about 25 s) and a fresh Spark start (about 20 s) come before the short measurement. Skipping the reset would make dry runs faster but stop them testing the real procedure. |
+| Results layout | `results/raw/<experiment>/<setting>/rep<k>/` with `config.json` first and `result.json` last; runs with a result are skipped | Resumable overnight runs (PLAN.md 5.9). Dry runs go to `results/raw-dry/` (git-ignored). |
+
+### Fault injection (T26)
+
+* SPK-10 (`FAULT_AFTER_BATCH=N`): after batch N's PostgreSQL transaction commits, the Python foreachBatch code SIGKILLs the Spark driver JVM (its parent process) before returning to Spark, so the batch is replayed after a restart. A marker file in the checkpoint volume makes it fire once. It waits 0.5 s before the kill, because Python's output is piped through the JVM and would otherwise be lost from the log.
+* `spark-bars` and `spark-passthrough` run with `init: true`: otherwise `spark-submit` is PID 1 in the container, and the kernel ignores SIGKILL sent to PID 1 from inside the container.
+* Deterministic replay (golden dataset preloaded, `maxOffsetsPerTrigger=5000`) gave exact output; the late-data risk at batch boundaries noted in M1 did not appear at this batch size. Re-check if E3/E4 change it.
+* Dry-run results: E4 insert-mode crash left 300 duplicate bar rows (batch 5's bars), upsert 0; E3 recovered in about 15 s (deterministic) to 28 s (live) with exact output.
+
+### Other M2 choices
+
+| Topic | Choice | Reason |
+|---|---|---|
+| Dashboard time axis | Time-series panels plot by `written_at` / `query_progress.ts` (wall clock); tables show event-time minutes; candlestick panel fixed to the last 5 minutes | Virtual-mode bars carry January 2026 timestamps, so a normal time range would be empty. At 30x a 15-minute view packs about 450 candles. Checked by screenshot. |
+| Dashboard source | Generated by `tools/make_dashboard.py`; a test fails if the committed JSON differs | Hand-edited dashboard JSON drifts. |
+| Compose project name | `name: market-pipeline` | Volume names (the harness wipes checkpoints by name) must not depend on the clone's folder name. |
+| Checkpoint volumes | `spark-checkpoint` (bars) and `passthrough-checkpoint` (pass-through) | Each can be wiped without touching the other (risk R8). |
+| Coinbase feed (T27) | Advanced Trade public market-data endpoint `wss://advanced-trade-ws.coinbase.com`, channel `market_trades` (no key), plus `heartbeats` | Confirmed through search results of Coinbase's docs; the docs host was not reachable from the development sandbox, which also cannot open WebSockets (proxy 403). **Spike S5 must confirm the live feed on a teammate's machine.** The adapter, reconnect, capture and fallback are tested against a local fake server that speaks the documented protocol. |
+| Capture replay | Re-stamped to start at the current time, looped | Old event times would be dropped as late by a pipeline that has already seen newer data. |
+| Live price precision | Prices go to Kafka with 4 decimals only when that loses nothing (all synthetic prices), otherwise in full | Found while testing: DOGE at 0.119812 was sent as 0.1198. The golden format is unchanged (GEN-1 tests). |
+| **Deviation from VER-2:** volume tolerance | Volume within a relative 1e-9 instead of exactly equal | With fractional (crypto) sizes Spark and the oracle add in a different order; 17 of 30 bars differed by about 1e-16 relative. Whole-number sizes are still effectively exact (any real error is at least one unit). OHLC remain exact. |
+| Verifying live runs | `python -m verify.verify --from-topic` (VER-2 b) | No generator file exists for live data; the topic's actual contents are the reference. |
+
 ## 2026-11-06 (M1)
 
 ### D1 adopted: "price change" in the alert rule is the log return of the close

@@ -4,7 +4,7 @@ Group 6, COMPSCI 4411/9538 (Databases 2): Arya Zarei, Rawad Alharastani, Mark Sa
 
 A case study of a real-time market-data pipeline: a seeded trade generator publishes trades for 100 symbols to a 3-broker Kafka cluster, a PySpark Structured Streaming job computes 1-minute bars and 3-sigma alerts into PostgreSQL, and Grafana shows them live. Scripted experiments measure latency, throughput, crash recovery and the cost of exactly-once output, and reproduce two published results.
 
-> **Status: milestones M0 and M1 done.** The full pipeline runs end to end: generator, 3-broker Kafka, Spark bars and alerts, PostgreSQL, verifier. `make golden` passes from a clean reset, and the output stays exactly correct through a Spark crash and a broker crash. The dashboard and the benchmark harness come in M2. See [PLAN.md](PLAN.md).
+> **Status: M0 and M1 done; M2 built.** The pipeline, the Grafana dashboard, the verifiers and the benchmark harness all work: `make golden` passes and every experiment (E1a to E4) completes a dry run. Two M2 checks need a teammate's machine before M2 can be ticked: the live Coinbase feed (T27, spike S5; the development sandbox cannot open WebSockets) and a clean-clone quickstart by someone who did not write the code (T28). See [PLAN.md](PLAN.md) and the [runbook](docs/runbook.md).
 
 ## Milestones
 
@@ -12,7 +12,7 @@ A case study of a real-time market-data pipeline: a seeded trade generator publi
 |---|---|---|---|---|
 | ✅ | **M0 Foundation** | Nov 6 to 8 | G0: all containers healthy, topics exist, `make test` passes | Done Nov 6 |
 | ✅ | **M1 End-to-end bars** | Nov 9 to 14 | G1: `make golden` passes from a clean `make reset` | Done Nov 6 |
-| ⬜ | M2 Output and measurement | Nov 15 to 21 | G2 (feature freeze): every experiment has a working one-minute dry run | |
+| 🟡 | **M2 Output and measurement** | Nov 15 to 21 | G2 (feature freeze): every experiment has a working one-minute dry run | Built Nov 11; dry runs pass. Open: T27 live-feed test, T28 teammate quickstart |
 | ⬜ | M3 Experiments | Nov 22 to 28 | G3: `results/summary.csv` and figures committed | |
 | ⬜ | M4 Freeze | Nov 29 to 30 | G4: `v1.0` tag pushed | |
 
@@ -26,10 +26,12 @@ Tasks, with acceptance criteria, are GitHub issues (`T00` to `T42`); details in 
 | [CLAUDE.md](CLAUDE.md) | Conventions for Claude Code sessions |
 | [docs/proposal/proposal.pdf](docs/proposal/proposal.pdf) | The confirmed project proposal |
 | [docs/decisions.md](docs/decisions.md) | Every decision and deviation, with reasons |
-| [generator/tradegen/](generator/tradegen/) | Trade generator: virtual, realtime and replay modes, per-trade ack log |
-| [spark/](spark/) | Spark bars and alerts job, PostgreSQL sink, progress listener |
-| [verify/](verify/) | Oracle (`reference.py`) and verifier (`verify.py`) |
+| [generator/tradegen/](generator/tradegen/) | Trade generator: virtual, realtime, replay and live Coinbase modes, per-trade ack log |
+| [spark/](spark/) | Spark bars and alerts job, PostgreSQL sink, progress listener, pass-through job |
+| [verify/](verify/) | Oracle (`reference.py`), bar and alert verifier (`verify.py`), Kafka-layer verifier (`kafka_layer.py`) |
 | [scripts/](scripts/) | `golden.sh` (gate G1) and `live_check.sh` (streaming and fault checks) |
+| [bench/](bench/) | Benchmark harness: experiments E1a to E4 (`bench/experiments/*.yaml`), latency and throughput collectors |
+| [docs/runbook.md](docs/runbook.md) | How to run the demo, the checks and each experiment; recovering a broken stack |
 | [infra/](infra/) | Kafka topics, PostgreSQL schema, Grafana provisioning, Dockerfiles |
 | [data/sample/](data/sample/) | Golden dataset: trades plus expected bars and alerts |
 | [tools/gen_sample_dataset.py](tools/gen_sample_dataset.py) | Reference generator and oracle (source of truth) |
@@ -40,13 +42,16 @@ Requires Docker with about 10 to 12 GB of memory allocated (use `make up LITE=1`
 
 ```bash
 make up          # build and start everything: Kafka x3, PostgreSQL, Grafana, Spark, and the generator
+                 # then open the dashboard: http://localhost:3000
 make golden      # gate G1: reset, replay the golden dataset through Kafka and Spark, verify (PASS/FAIL)
-make test        # unit and integration tests (oracle, generator, alert rule, verifier, sink)
+make test        # unit and integration tests
+make demo-live   # live demo on Coinbase trades (make demo-offline replays a capture, no network)
+make bench-dry   # every experiment as a short dry run (about 20 minutes); make bench-e2 etc. for real runs
 make reset       # stop everything and delete all volumes
 make help        # all targets
 ```
 
-`make up` starts the live demo. The generator runs in virtual mode at 30x (decision D3): 480 virtual minutes in 16 wall minutes, with price shocks after the 30-bar warm-up, so alerts start after about 80 seconds. Bars and alerts land in PostgreSQL (`bars`, `alerts`); `query_progress` has one row per Spark batch. The Grafana dashboard comes in M2 (T20).
+`make up` starts the live demo. The generator runs in virtual mode at 30x (decision D3): 480 virtual minutes in 16 wall minutes, with price shocks after the 30-bar warm-up, so alerts start after about 80 seconds. Bars and alerts land in PostgreSQL (`bars`, `alerts`); `query_progress` has one row per Spark batch. The Grafana dashboard (http://localhost:3000, no login) shows a candlestick chart with VWAP for a chosen symbol, the alerts, alerts per minute, and pipeline health (throughput, batch duration, Kafka lag).
 
 Checking correctness of a run:
 

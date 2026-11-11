@@ -473,16 +473,16 @@ After T05, these three streams are independent because the golden dataset and th
 
 Parallel streams again: dashboard and docs; Kafka-layer verification and fault injection; harness and collectors.
 
-- [ ] **T20** Dashboard (DSH-1 to DSH-6) provisioned from files. *Done when:* a clean `docker compose up` shows live bars and alerts without any manual step.
-- [ ] **T21** Verifier VER-1 (Kafka layer) using the ack log (GEN-2). *Done when:* a run with a deliberately dropped message is reported as `lost`.
-- [ ] **T22** Pass-through job with micro-batch and continuous modes (5.6). *Done when:* both modes pass messages end to end.
-- [ ] **T23** Latency collectors (pass-through `LogAppendTime` and bar `written_at`) and sustained-throughput check (D5). *Done when:* both produce percentile tables on a one-minute run.
-- [ ] **T24** Benchmark runner: topic recreation, checkpoint wipe, start and stop, resumable results layout, `config.json` per run. *Done when:* a dry run of each of E1b to E4 completes in about one minute.
-- [ ] **T25** E1a script with `kafka-producer-perf-test`. *Done when:* a small run produces a throughput-versus-batching table.
-- [ ] **T26** Fault injection: `docker kill` helpers (find the leader of partition 0), SPK-10 hook, deterministic replay mode. *Done when:* E2, E3 and E4 dry runs each demonstrate their failure.
-- [ ] **T27** Coinbase producer, capture and replay fallback (LIVE-1 to LIVE-6). *Done when:* the pipeline runs on live trades for 10 minutes, and again from the capture with the network off.
+- [x] **T20** Dashboard (DSH-1 to DSH-6) provisioned from files. *Done when:* a clean `docker compose up` shows live bars and alerts without any manual step.
+- [x] **T21** Verifier VER-1 (Kafka layer) using the ack log (GEN-2). *Done when:* a run with a deliberately dropped message is reported as `lost`.
+- [x] **T22** Pass-through job with micro-batch and continuous modes (5.6). *Done when:* both modes pass messages end to end.
+- [x] **T23** Latency collectors (pass-through `LogAppendTime` and bar `written_at`) and sustained-throughput check (D5). *Done when:* both produce percentile tables on a one-minute run.
+- [x] **T24** Benchmark runner: topic recreation, checkpoint wipe, start and stop, resumable results layout, `config.json` per run. *Done when:* a dry run of each of E1b to E4 completes in about one minute.
+- [x] **T25** E1a script with `kafka-producer-perf-test`. *Done when:* a small run produces a throughput-versus-batching table.
+- [x] **T26** Fault injection: `docker kill` helpers (find the leader of partition 0), SPK-10 hook, deterministic replay mode. *Done when:* E2, E3 and E4 dry runs each demonstrate their failure.
+- [ ] **T27** Coinbase producer, capture and replay fallback (LIVE-1 to LIVE-6). *Done when:* the pipeline runs on live trades for 10 minutes, and again from the capture with the network off. **Built and tested against a local fake feed and offline from a capture (Nov 11); the 10-minute live run needs a machine that can reach Coinbase (spike S5).**
 - [ ] **T28** Quickstart: clean-clone `docker compose up` works on a teammate's machine, README quickstart. *Done when:* a teammate who did not write the code follows only the README and reaches a populated dashboard.
-- **Gate G2 (Nov 21):** feature freeze. Only bug fixes after this date.
+- **Gate G2 (Nov 21):** feature freeze. Only bug fixes after this date. **Every experiment's dry run completed on Nov 11 (`make bench-dry`).**
 
 ### M3 Experiments (Nov 22 to 28)
 
