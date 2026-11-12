@@ -30,7 +30,9 @@ exactly, so every run is verified bar by bar. We reproduce two published results
 batching, Kreps et al. Figure 4; continuous versus micro-batch latency, Armbrust et al. Figure 7) and
 extend them with what neither paper measured: whether the output stays correct when a broker or the
 Spark job crashes, and what exactly-once output costs. *(Add one sentence of headline results after
-M3.)*
+M3.)* Suggested: "No acknowledged trade was lost in 12 broker crashes, Spark recovered from its own
+crash in about 14 s with exact output, and exactly-once output cost nothing measurable at 2,000
+trades per second, while plain inserts left 300 duplicate rows after every crash."
 
 ## 1. Background and significance
 
@@ -135,21 +137,86 @@ Sustained throughput: the highest input rate at which Spark keeps up over a five
 (decision D5). A warm-up period is discarded from latency measurements (measured: JVM warm-up
 inflates the first seconds about twentyfold).
 
-*(Fill each subsection from `results/RESULTS.md` once M3 has run; one figure each.)*
+Medians over three runs (six kills for E2 acks=1), with the range in brackets. Every number:
+`results/RESULTS.md`, `results/summary.csv`.
 
-- **6.1 E1a, producer batching (reproduction a).** Figure `e1a_producer_batching.png`.
-- **6.2 E1b, continuous versus micro-batch (reproduction b).** Figure `e1b_continuous_vs_microbatch.png`.
-- **6.3 E1c, partitions and trigger (RQ1).** Figures `e1c_sustained_throughput.png`, `e1c_bar_latency.png`.
-- **6.4 E2, broker crash (RQ2).** Figure `e2_broker_crash.png`.
-- **6.5 E3, Spark crash (RQ2).** Figure `e3_spark_recovery.png`.
-- **6.6 E4, exactly-once cost (RQ3).** Figure `e4_exactly_once.png`.
+### 6.1 E1a, producer batching (reproduction a, Kreps et al. Fig. 4)
+
+| batch size (messages) | 1 | 10 | 50 | 100 | 200 |
+|---|---|---|---|---|---|
+| records per second | 19,798 | 154,909 | 525,376 | 739,153 | 848,033 |
+
+Throughput rises with batching, by 26 times from 1 to 50 messages per batch (the paper: about 8
+times, 50,000 to 400,000 messages per second). Figure `e1a_producer_batching.png`. With acks=0, as in
+the paper, the tool's latency column is not meaningful and is not reported.
+
+### 6.2 E1b, continuous versus micro-batch (reproduction b, Armbrust et al. Fig. 7)
+
+Continuous mode (4 partitions): p50 latency 43 to 83 ms from 5,000 to 40,000 records/s (p99 0.3 to
+0.9 s), then 1.8 s p50 and 6.9 s p99 at 80,000 records/s, where its four tasks saturate. Micro-batch
+(100 ms trigger) sustained the highest rate we could generate, **at least 100,000 records/s**, at p50
+0.27 to 0.62 s. Figure `e1b_continuous_vs_microbatch.png`.
+
+### 6.3 E1c, partitions and trigger interval (RQ1)
+
+Sustained throughput (five-minute runs): 1 partition 75,000 records/s (one of three runs passed
+90,000); 3 and 6 partitions at least 90,000 records/s (no failing rate found up to the input limit).
+Bar latency p50 at 30,000 records/s: 2.4 to 2.5 s for 1, 3 and 6 partitions; at 60,000 records/s,
+2.1 s (3 partitions) to 3.5 s (6 partitions), with batch duration growing from about 0.6 s to 0.9 to
+1.3 s. *(Trigger sweep 100 ms, 500 ms, 5 s: fill in from RESULTS.md.)* Figures
+`e1c_sustained_throughput.png`, `e1c_bar_latency.png`.
+
+### 6.4 E2, broker crash (RQ2)
+
+No acknowledged trade was lost in any of 12 leader kills: acks=1 (6 kills), acks=all (3) and acks=all
+without idempotence (3). Writes stalled for 9.3 s [8.1 to 9.5] with acks=all, **on every partition**
+(the longest gap with no acknowledgement anywhere was 9.1 s), because the dead broker sits in every
+partition's in-sync replica set until the controller fences it (`broker.session.timeout.ms` = 9 s).
+With acks=1 only the partitions the dead broker led stalled, for 10.3 s [9.3 to 12.4]; the others
+kept acknowledging (longest gap anywhere 0.08 s). No duplicates appeared in these runs, also without
+idempotence (an earlier fault check did produce one, section 8). In one of the three runs without
+idempotence, 33 bars of one minute were wrong although Kafka held every trade: a 3.8 s difference in
+when partitions resumed, multiplied by the experiment's 10x time compression, exceeded the 10 s
+watermark, and Spark dropped those trades as late (`docs/decisions.md`, 2026-11-12). The dry run, at
+a different rate, did lose 2 acknowledged trades with acks=1: loss is possible but rare.
+Figure `e2_broker_crash.png`.
+
+### 6.5 E3, Spark crash (RQ2)
+
+After a SIGKILL the first new bar was written 12.8 s [12.6 to 12.9] later in deterministic replay and
+14.6 s [14.2 to 14.9] later on a live stream; output was exact in all six runs. Recovery time is
+almost entirely JVM and Spark start-up (restart to first completed batch: 12.8 to 13.4 s).
+Figure `e3_spark_recovery.png`.
+
+### 6.6 E4, exactly-once cost (RQ3)
+
+Crashing Spark after the database commit but before Spark's own commit left **300 duplicate bar rows
+in every run with plain inserts and none with upserts** (3 runs each). Crash-free at 2,000 records/s,
+the cost of upserting was not measurable: batch duration p50 460 ms (insert) versus 451 ms (upsert);
+bar latency p50 1.7 s [1.5 to 1.9] versus 2.1 s [1.7 to 2.3], overlapping ranges, p99 2.45 s versus
+2.43 s; both kept up. Figure `e4_exactly_once.png`.
 
 ## 7. Reproduction and extension: discussion
 
-For each reproduction, state what matches in shape, what differs, and why (one shared 4-core
-machine instead of the papers' dedicated hardware; Kafka 4.4's Java producer counts batches in bytes
-rather than messages; modern Kafka writes through the page cache with replication available).
-For the extension, state the answers to RQ2 and RQ3 directly, with the numbers.
+**Reproduction (a)** holds in shape: batching raises producer throughput by more than an order of
+magnitude, as Kreps et al. found. Our unbatched rate is lower than theirs (each one-record request is
+a round trip through a single shared 4-core machine) and our batched rates are higher (a modern
+producer and CPU); the paper used two dedicated 8-core machines, and batch sizes here are approximated
+in bytes.
+
+**Reproduction (b)** holds in shape: continuous processing gives far lower latency (tens of
+milliseconds against hundreds for micro-batch) up to a saturation point, beyond which its latency
+climbs steeply, while micro-batch sustains a higher input rate. Armbrust et al. reported about 1 ms
+continuous latency; ours is tens of milliseconds because it includes the producer's batching
+(`linger.ms` = 5), Kafka writes with acks=all on three replicas, and the sink's own producer. The
+4-partition cap on 4 cores (spike S3) is the constraint the paper describes.
+
+**Extension.** RQ2: with RF 3 and min ISR 2, no acknowledged trade was lost in 12 leader kills, and
+the price of acks=all is a stall of about 9 s on every partition until the dead broker is fenced;
+acks=1 limits the stall to the dead broker's partitions but can lose acknowledged writes (seen once,
+in a dry run). Spark recovers from its own crash in about 13 to 15 s with exact output. RQ3: plain
+inserts are wrong after a crash (300 duplicate rows every time); upserts are exact, at no measurable
+cost at 2,000 records/s.
 
 ## 8. Challenges faced
 
@@ -193,7 +260,8 @@ absolute numbers.
 
 ## 11. Conclusion
 
-*(Answer RQ1 to RQ3 in one paragraph each, with the headline numbers.)*
+*(Write after the trigger sweep: RQ1 from E1b/E1c, RQ2 from E2/E3, RQ3 from E4, one paragraph each,
+using the numbers in sections 6 and 7.)*
 
 ## References
 
