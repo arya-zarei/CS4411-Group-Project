@@ -2,6 +2,20 @@
 
 Every decision and every deviation from the proposal or `PLAN.md`, newest first. Format: date, ID, decision, reason.
 
+## 2026-11-12 (M4)
+
+* **Fresh-clone check (T40)**: `scripts/fresh_clone_check.sh` cloned `main` from GitHub into an empty
+  folder and followed the README: `uv sync`, ruff, oracle `MATCH`, 80 tests (including PostgreSQL
+  integration), `make golden` with images built from the clone: PASS (4,000/4,000 bars, 23/23 alerts).
+  Same VM as development, so the second-machine part of T40 stays open for a teammate.
+* **Demo rehearsal (T42)**, from that clone: `KILL_SPARK_AT=15 KILL_BROKER_AT=35 scripts/live_check.sh`
+  PASS (6,000/6,000 bars, 29/29 alerts after both crashes); `docker compose up` reached a populated
+  dashboard with 12 alerts within about two minutes.
+* **E1c latency figure**: compared at 30,000 and 60,000 records/s, below saturation. At the top rate
+  (90,000) bar latency is backlog (20 to 40 s) and says nothing about the setting.
+* **`v1.0`** tags the commit that adds these notes; it differs from the rehearsed commit only in
+  documentation.
+
 ## 2026-11-12 (M3 findings)
 
 ### E2: a broker failover can make Spark drop trades as late (watermark), at 10x time compression

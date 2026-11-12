@@ -97,7 +97,7 @@ commit and machine (git-ignored; the summaries are committed). Details: [docs/ru
 | ✅ | **M1 End-to-end bars** | G1: `make golden` passes from a clean `make reset` | Done Nov 6 |
 | ✅ | **M2 Output and measurement** | G2: every experiment has a working dry run | Done Nov 11 (T27 live run and T28 teammate check open) |
 | ✅ | **M3 Experiments** | G3: `results/summary.csv` and figures committed | Done Nov 12 |
-| ✅ | **M4 Freeze** | G4: `v1.0` tag pushed | Done Nov 12 (T40 second-machine check open) |
+| ✅ | **M4 Freeze** | G4: `v1.0` tag pushed | Done Nov 12: fresh clone and demo rehearsal (with crashes) pass; T40 on a second machine open |
 
 ## Status and open items
 

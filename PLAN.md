@@ -495,10 +495,10 @@ Parallel streams again: dashboard and docs; Kafka-layer verification and fault i
 
 ### M4 Freeze (Nov 29 to 30)
 
-- [ ] **T40** Fresh-clone test on a second machine. *Done when:* quickstart works and `make golden` passes there.
+- [ ] **T40** Fresh-clone test on a second machine. **Fresh clone passed on Nov 12 (`scripts/fresh_clone_check.sh`: lint, oracle, 80 tests, `make golden` PASS) on the development VM; a teammate's second machine is still open.** *Done when:* quickstart works and `make golden` passes there.
 - [x] **T41** `docs/runbook.md`, `docs/architecture.md`, README finished, limitations written down.
-- [ ] **T42** Tag `v1.0`. Rehearse the demo from the tagged commit.
-- **Gate G4:** tag pushed.
+- [x] **T42** Tag `v1.0`. Rehearse the demo from the tagged commit. **Done Nov 12: from a fresh clone, `live_check.sh` with a Spark kill and a broker kill ended in PASS (6,000/6,000 bars, 29/29 alerts), and `docker compose up` gave a populated dashboard with alerts within about two minutes.**
+- **Gate G4:** tag pushed. **Passed Nov 12 (`v1.0`).**
 
 ### Spikes (do early, record outcomes in `docs/decisions.md`)
 
