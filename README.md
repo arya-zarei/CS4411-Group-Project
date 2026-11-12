@@ -2,78 +2,117 @@
 
 Group 6, COMPSCI 4411/9538 (Databases 2): Arya Zarei, Rawad Alharastani, Mark Samwaiel.
 
-A case study of a real-time market-data pipeline: a seeded trade generator publishes trades for 100 symbols to a 3-broker Kafka cluster, a PySpark Structured Streaming job computes 1-minute bars and 3-sigma alerts into PostgreSQL, and Grafana shows them live. Scripted experiments measure latency, throughput, crash recovery and the cost of exactly-once output, and reproduce two published results.
+A seeded trade generator publishes trades for 100 symbols to a 3-broker Kafka cluster (KRaft, RF 3,
+min ISR 2); a PySpark Structured Streaming job computes 1-minute bars (open, high, low, close, VWAP)
+and 3-sigma alerts into PostgreSQL; Grafana shows them live. All of it starts with one
+`docker compose up`. Scripted experiments measure latency, throughput, crash recovery and the cost of
+exactly-once output, reproduce two published results (Kreps et al. 2011, Fig. 4; Armbrust et al.
+2018, Fig. 7), and every run is checked bar by bar against an oracle.
 
-> **Status: M0 and M1 done; M2 built.** The pipeline, the Grafana dashboard, the verifiers and the benchmark harness all work: `make golden` passes and every experiment (E1a to E4) completes a dry run. Two M2 checks need a teammate's machine before M2 can be ticked: the live Coinbase feed (T27, spike S5; the development sandbox cannot open WebSockets) and a clean-clone quickstart by someone who did not write the code (T28). See [PLAN.md](PLAN.md) and the [runbook](docs/runbook.md).
+> **Status: built, measured and verified (M0 to M4).** `make golden` passes; all experiments ran
+> three times per setting (`results/`). Open items that need the group: the live Coinbase run and a
+> teammate's quickstart (T27, T28), a second-machine check (T40), a license (D8), and confirming the
+> alert rule (D1). See [Status and open items](#status-and-open-items).
 
-## Milestones
+## Results at a glance
 
-| | Milestone | Dates | Gate | Status |
-|---|---|---|---|---|
-| ✅ | **M0 Foundation** | Nov 6 to 8 | G0: all containers healthy, topics exist, `make test` passes | Done Nov 6 |
-| ✅ | **M1 End-to-end bars** | Nov 9 to 14 | G1: `make golden` passes from a clean `make reset` | Done Nov 6 |
-| 🟡 | **M2 Output and measurement** | Nov 15 to 21 | G2 (feature freeze): every experiment has a working one-minute dry run | Built Nov 11; dry runs pass. Open: T27 live-feed test, T28 teammate quickstart |
-| ⬜ | M3 Experiments | Nov 22 to 28 | G3: `results/summary.csv` and figures committed | |
-| ⬜ | M4 Freeze | Nov 29 to 30 | G4: `v1.0` tag pushed | |
+Medians over three runs, on one 4-vCPU, 16 GB machine. Full tables: [results/RESULTS.md](results/RESULTS.md);
+every number: [results/summary.csv](results/summary.csv); machine and versions: [results/MACHINE.md](results/MACHINE.md).
 
-Tasks, with acceptance criteria, are GitHub issues (`T00` to `T42`); details in [PLAN.md](PLAN.md) section 9. Decisions and deviations: [docs/decisions.md](docs/decisions.md).
-
-## Contents
-
-| Path | What |
-|---|---|
-| [PLAN.md](PLAN.md) | Full build plan, requirements, milestones, task list |
-| [CLAUDE.md](CLAUDE.md) | Conventions for Claude Code sessions |
-| [docs/proposal/proposal.pdf](docs/proposal/proposal.pdf) | The confirmed project proposal |
-| [docs/decisions.md](docs/decisions.md) | Every decision and deviation, with reasons |
-| [generator/tradegen/](generator/tradegen/) | Trade generator: virtual, realtime, replay and live Coinbase modes, per-trade ack log |
-| [spark/](spark/) | Spark bars and alerts job, PostgreSQL sink, progress listener, pass-through job |
-| [verify/](verify/) | Oracle (`reference.py`), bar and alert verifier (`verify.py`), Kafka-layer verifier (`kafka_layer.py`) |
-| [scripts/](scripts/) | `golden.sh` (gate G1) and `live_check.sh` (streaming and fault checks) |
-| [bench/](bench/) | Benchmark harness: experiments E1a to E4 (`bench/experiments/*.yaml`), latency and throughput collectors |
-| [docs/runbook.md](docs/runbook.md) | How to run the demo, the checks and each experiment; recovering a broken stack |
-| [infra/](infra/) | Kafka topics, PostgreSQL schema, Grafana provisioning, Dockerfiles |
-| [data/sample/](data/sample/) | Golden dataset: trades plus expected bars and alerts |
-| [tools/gen_sample_dataset.py](tools/gen_sample_dataset.py) | Reference generator and oracle (source of truth) |
+| Question | Finding | Figure |
+|---|---|---|
+| Reproduction (a): producer batching | 19,798 records/s unbatched, 525,376 with 50-message batches (26x; the paper: about 8x). Shape reproduced. | [e1a](results/figures/e1a_producer_batching.png) |
+| Reproduction (b): continuous vs micro-batch | Continuous: p50 43 to 83 ms up to 40,000 records/s, saturating at 80,000 (p50 1.8 s). Micro-batch sustained at least 100,000 records/s (our input limit) at p50 0.3 to 0.6 s. Shape reproduced. | [e1b](results/figures/e1b_continuous_vs_microbatch.png) |
+| RQ1: partitions and trigger | 1 partition sustains about 75,000 records/s; 3 and 6 partitions at least 90,000 (our input limit). Bar latency p50 is 2 to 3.5 s; the best trigger depends on load: 500 ms at 30,000 records/s (1.7 s), 1 s at 60,000 (4.9 s), because shorter triggers only add overhead once a batch takes longer than the interval; 5 s is slowest (7 to 9 s). | [throughput](results/figures/e1c_sustained_throughput.png), [latency 30k](results/figures/e1c_bar_latency_30k.png), [60k](results/figures/e1c_bar_latency_60k.png) |
+| RQ2: broker crash | No acknowledged trade lost in 12 leader kills. acks=all stalls every partition for about 9 s until the dead broker is fenced; acks=1 stalls only its partitions (about 10 s). | [e2](results/figures/e2_broker_crash.png) |
+| RQ2: Spark crash | First new bar 12.8 s (replay) to 14.6 s (live) after a SIGKILL; output exact in all runs. | [e3](results/figures/e3_spark_recovery.png) |
+| RQ3: exactly-once cost | A crash between the database commit and Spark's commit left 300 duplicate rows with plain inserts, 0 with upserts, every time; no measurable cost at 2,000 records/s. | [e4](results/figures/e4_exactly_once.png) |
 
 ## Quickstart
 
-Requires Docker with about 10 to 12 GB of memory allocated (use `make up LITE=1` on smaller machines), and [uv](https://docs.astral.sh/uv/) for the Python tooling (`uv sync` once).
+Requires Docker with 10 to 12 GB of memory (or `make up LITE=1`) and [uv](https://docs.astral.sh/uv/).
 
 ```bash
-make up          # build and start everything: Kafka x3, PostgreSQL, Grafana, Spark, and the generator
-                 # then open the dashboard: http://localhost:3000
-make golden      # gate G1: reset, replay the golden dataset through Kafka and Spark, verify (PASS/FAIL)
-make test        # unit and integration tests
-make demo-live   # live demo on Coinbase trades (make demo-offline replays a capture, no network)
-make bench-dry   # every experiment as a short dry run (about 20 minutes); make bench-e2 etc. for real runs
-make reset       # stop everything and delete all volumes
-make help        # all targets
+git clone https://github.com/arya-zarei/CS4411-Group-Project.git && cd CS4411-Group-Project
+uv sync          # Python tools (pinned in uv.lock)
+make up          # Kafka x3, PostgreSQL, Grafana, Spark and the generator; then open http://localhost:3000
+make golden      # replay the golden dataset through Kafka and Spark and verify every bar and alert: PASS
+make help        # every target
 ```
 
-`make up` starts the live demo. The generator runs in virtual mode at 30x (decision D3): 480 virtual minutes in 16 wall minutes, with price shocks after the 30-bar warm-up, so alerts start after about 80 seconds. Bars and alerts land in PostgreSQL (`bars`, `alerts`); `query_progress` has one row per Spark batch. The Grafana dashboard (http://localhost:3000, no login) shows a candlestick chart with VWAP for a chosen symbol, the alerts, alerts per minute, and pipeline health (throughput, batch duration, Kafka lag).
+`make up` runs the demo: the generator at 30x virtual speed (480 virtual minutes in 16 minutes) with
+price shocks after the 30-bar warm-up, so alerts appear after about 80 seconds. The dashboard needs no
+login. Other endpoints: Spark UI http://localhost:4040; PostgreSQL `localhost:5432` (user `pipeline`,
+database `market`); Kafka `localhost:29092` to `29094`. `make reset` stops everything and deletes all
+data. Behind a TLS-inspecting proxy, pass its CA: `EXTRA_CA_FILE=$PWD/.local/proxy-ca.pem make up`
+(the file must be inside the project folder).
 
-Checking correctness of a run:
+## Reproducing everything
 
-```bash
-make golden                                          # golden dataset, ends with PASS or FAIL
-scripts/live_check.sh                                # streaming run (60 virtual minutes at 60x), then verify
-KILL_SPARK_AT=15 KILL_BROKER_AT=35 scripts/live_check.sh   # same, with a Spark crash and a broker crash
-```
+| Goal | Command |
+|---|---|
+| The golden dataset | `uv run python tools/gen_sample_dataset.py --out data/sample --check` prints `MATCH` |
+| Whole-pipeline correctness | `make golden`; with crashes: `KILL_SPARK_AT=15 KILL_BROKER_AT=35 scripts/live_check.sh` |
+| All experiments (about 12 hours, resumable) | `make bench-all`; or one: `make bench-e2`; quick check: `make bench-dry` |
+| Tables and figures from the raw runs | `uv run python -m bench.summarize` |
+| A fresh clone, end to end | `scripts/fresh_clone_check.sh` |
+| Tests | `make test` (unit and PostgreSQL integration tests; CI runs them on every push) |
 
-Endpoints: Grafana http://localhost:3000 (viewer without login, admin/admin to edit), Spark UI http://localhost:4040, PostgreSQL `localhost:5432` (user `pipeline`, database `market`), Kafka from the host `localhost:29092`, `29093`, `29094`.
+Every run writes `results/raw/<experiment>/<setting>/rep<k>/` with its configuration, versions, git
+commit and machine (git-ignored; the summaries are committed). Details: [docs/runbook.md](docs/runbook.md).
 
-Image versions are pinned in `docker-compose.yml` (same values as `.env.example`). Copy `.env.example` to `.env` only to override something. The application code is copied into the images, so rebuild after changing it (`make up` and `make golden` do).
+## Documentation
 
-**Behind a TLS-inspecting proxy** (some university or company networks), image builds cannot download packages. Pass the proxy's CA certificate: `EXTRA_CA_FILE=$PWD/.local/proxy-ca.pem make up` (the file must be inside the project folder; `.local/` is git-ignored).
+| Document | Contents |
+|---|---|
+| [docs/architecture.md](docs/architecture.md) | How Kafka and Spark Structured Streaming work and integrate; failure behaviour with evidence; design trade-offs |
+| [results/RESULTS.md](results/RESULTS.md) | Every measured result |
+| [docs/decisions.md](docs/decisions.md) | Every decision, deviation and finding, dated, with reasons |
+| [docs/runbook.md](docs/runbook.md) | Running the demo, the checks and each experiment; recovering a broken stack |
+| [docs/report/report-draft.md](docs/report/report-draft.md) | Draft of the final report, mapped to the evaluation rubric (to port to the course's LaTeX template) |
+| [docs/presentation.md](docs/presentation.md) | 15-minute presentation plan and demo script |
+| [PLAN.md](PLAN.md) | Requirements, milestones and tasks |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Workflow and the checks to run before pushing |
+| [docs/proposal/proposal.pdf](docs/proposal/proposal.pdf) | The approved proposal |
 
-## Reproducing the golden dataset
+## Repository
 
-```bash
-uv sync
-uv run python tools/gen_sample_dataset.py --out data/sample --check   # prints MATCH
-```
+| Path | What |
+|---|---|
+| [generator/tradegen/](generator/tradegen/) | Trade generator: virtual, realtime, replay and live Coinbase modes; per-trade acknowledgement log |
+| [spark/](spark/) | Bars and alerts job, PostgreSQL sink, progress listener, pass-through job |
+| [verify/](verify/) | Oracle (`reference.py`), bar and alert verifier, Kafka-layer verifier |
+| [bench/](bench/) | Experiment harness (`experiments/*.yaml`), collectors, summarizer |
+| [scripts/](scripts/) | `golden.sh`, `live_check.sh`, `fresh_clone_check.sh` |
+| [infra/](infra/) | Kafka topics, PostgreSQL schema, Grafana dashboard and data source, Dockerfiles |
+| [data/sample/](data/sample/) | Golden dataset (60,163 trades) with expected bars, alerts and a SHA-256 manifest |
+| [tools/](tools/) | The oracle and dataset generator (`gen_sample_dataset.py`), dashboard generator |
+| [results/](results/) | Summary, figures, machine record |
 
-## License
+## Milestones
 
-To be chosen by the group (see PLAN.md decision D8).
+| | Milestone | Gate | Status |
+|---|---|---|---|
+| ✅ | **M0 Foundation** | G0: all containers healthy, topics exist, `make test` passes | Done Nov 6 |
+| ✅ | **M1 End-to-end bars** | G1: `make golden` passes from a clean `make reset` | Done Nov 6 |
+| ✅ | **M2 Output and measurement** | G2: every experiment has a working dry run | Done Nov 11 (T27 live run and T28 teammate check open) |
+| ✅ | **M3 Experiments** | G3: `results/summary.csv` and figures committed | Done Nov 12 |
+| ✅ | **M4 Freeze** | G4: `v1.0` tag pushed | Done Nov 12 (T40 second-machine check open) |
+
+## Status and open items
+
+These need a person or a different machine; everything else is done and tested.
+
+| Item | Why it is open | How to close it |
+|---|---|---|
+| T27 / S5: 10 minutes on live Coinbase trades | The development environment cannot open WebSockets; the adapter is tested against a protocol-faithful fake feed and offline from a capture | `make demo-live` for 10 minutes, then `uv run python -m verify.verify --from-topic` |
+| T34: capture a live session for the demo fallback | Same | `make demo-live` writes `runs/captures/coinbase-live.jsonl` |
+| T28 / T40: quickstart and fresh clone on a teammate's machine | Needs someone who did not write the code, and a second machine | `scripts/fresh_clone_check.sh`, then comment on the issue |
+| D1: the alert's "price change" = log return of the close | Group decision | Confirm in the group chat |
+| D8: license | Group decision | Add a `LICENSE` file (MIT is the usual choice) |
+
+Known limitations (also in the report): one machine, so no network partitions and no multi-node
+Spark; synthetic data for every measurement; security features described, not measured; virtual time
+compression magnifies failover skew relative to the watermark (docs/decisions.md, 2026-11-12); the
+benchmark VM changed CPU between experiments, and results are only compared within one machine
+(results/MACHINE.md).

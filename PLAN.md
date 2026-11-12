@@ -486,17 +486,17 @@ Parallel streams again: dashboard and docs; Kafka-layer verification and fault i
 
 ### M3 Experiments (Nov 22 to 28)
 
-- [ ] **T30** E2, E3, E4 (three runs per setting). Start here.
-- [ ] **T31** E1a, E1b.
-- [ ] **T32** E1c (reduced grid first, then more if time allows).
-- [ ] **T33** Plots and `results/summary.csv`, `results/MACHINE.md`.
-- [ ] **T34** Capture a live Coinbase session for the demo fallback.
-- **Gate G3 (Nov 28):** results committed.
+- [x] **T30** E2, E3, E4 (three runs per setting). Start here.
+- [x] **T31** E1a, E1b.
+- [x] **T32** E1c (reduced grid first, then more if time allows).
+- [x] **T33** Plots and `results/summary.csv`, `results/MACHINE.md`.
+- [ ] **T34** Capture a live Coinbase session for the demo fallback. **Open: needs a machine that can reach Coinbase (`make demo-live` writes the capture).**
+- **Gate G3 (Nov 28):** results committed. **Passed Nov 12: 72 runs, `results/summary.csv`, `results/RESULTS.md`, figures, `results/MACHINE.md`.**
 
 ### M4 Freeze (Nov 29 to 30)
 
 - [ ] **T40** Fresh-clone test on a second machine. *Done when:* quickstart works and `make golden` passes there.
-- [ ] **T41** `docs/runbook.md`, `docs/architecture.md`, README finished, limitations written down.
+- [x] **T41** `docs/runbook.md`, `docs/architecture.md`, README finished, limitations written down.
 - [ ] **T42** Tag `v1.0`. Rehearse the demo from the tagged commit.
 - **Gate G4:** tag pushed.
 

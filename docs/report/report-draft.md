@@ -160,11 +160,24 @@ Continuous mode (4 partitions): p50 latency 43 to 83 ms from 5,000 to 40,000 rec
 ### 6.3 E1c, partitions and trigger interval (RQ1)
 
 Sustained throughput (five-minute runs): 1 partition 75,000 records/s (one of three runs passed
-90,000); 3 and 6 partitions at least 90,000 records/s (no failing rate found up to the input limit).
-Bar latency p50 at 30,000 records/s: 2.4 to 2.5 s for 1, 3 and 6 partitions; at 60,000 records/s,
-2.1 s (3 partitions) to 3.5 s (6 partitions), with batch duration growing from about 0.6 s to 0.9 to
-1.3 s. *(Trigger sweep 100 ms, 500 ms, 5 s: fill in from RESULTS.md.)* Figures
-`e1c_sustained_throughput.png`, `e1c_bar_latency.png`.
+90,000); 3 and 6 partitions, and every trigger from 500 ms to 5 s, at least 90,000 records/s, the most
+our generator could supply beside Spark on 4 cores; the 100 ms trigger reached its limit in one run of
+three (75,000).
+
+Bar latency p50 (window end + watermark to row written):
+
+| | 30,000 records/s | 60,000 records/s |
+|---|---|---|
+| 1, 3, 6 partitions (trigger 1 s; machine B) | 2.5, 2.4, 2.5 s | 2.4, 2.1, 3.5 s |
+| trigger 100 ms, 500 ms, 1 s, 5 s (6 partitions; machine A) | 2.2, **1.7**, 2.9, 7.2 s | 6.4, 5.7, **4.9**, 8.7 s |
+
+The best trigger depends on load. At 30,000 records/s a 500 ms trigger is fastest. At 60,000 a batch
+takes about 2 s whatever the trigger (batch duration p50 2.4 s at 100 ms, 2.1 s at 500 ms, 2.0 s at
+1 s), so a shorter trigger no longer starts batches sooner and only adds per-batch overhead: 1 s is
+fastest. A 5 s trigger always waits longest. Partitions matter little below saturation; at 60,000,
+6 partitions on 4 cores cost more than 3 (more tasks and state-store work per batch). The two sweeps
+ran on different CPUs and are compared only within a sweep (`results/MACHINE.md`). Figures
+`e1c_sustained_throughput.png`, `e1c_bar_latency_30k.png`, `e1c_bar_latency_60k.png`.
 
 ### 6.4 E2, broker crash (RQ2)
 
@@ -260,8 +273,21 @@ absolute numbers.
 
 ## 11. Conclusion
 
-*(Write after the trigger sweep: RQ1 from E1b/E1c, RQ2 from E2/E3, RQ3 from E4, one paragraph each,
-using the numbers in sections 6 and 7.)*
+**RQ1.** Processing mode decides the latency floor: continuous processing answers in tens of
+milliseconds but saturates between 40,000 and 80,000 records/s on 4 cores, while micro-batch trades
+hundreds of milliseconds for at least 100,000 records/s. On the bars pipeline the trigger interval
+should be matched to the load (500 ms at moderate load, 1 s at high load; 5 s is never better), and
+more partitions than cores do not help.
+
+**RQ2.** With replication factor 3 and min ISR 2, no acknowledged trade was lost in 12 leader kills;
+acks=all stalls all writes for about 9 s until the dead broker is fenced, acks=1 stalls only its
+partitions but can lose acknowledged writes. A failover can also make Spark drop trades as late when
+the watermark is shorter than the skew between partitions. Spark recovers from its own crash in
+about 13 to 15 s with exact output.
+
+**RQ3.** Exactly-once output needs an idempotent sink: plain inserts duplicated 300 rows after every
+crash between the database commit and Spark's commit, upserts none, and at 2,000 records/s the
+upsert cost nothing measurable.
 
 ## References
 

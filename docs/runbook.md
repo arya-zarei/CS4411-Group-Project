@@ -56,8 +56,27 @@ leaves `error.json` and is retried. Delete a run's folder to repeat it.
 | E1b | Pass-through latency, continuous versus micro-batch (Armbrust et al. Figure 7) | about 30 min per run |
 | E1c | Bars pipeline: partitions and trigger interval versus throughput and latency | 30 to 60 min per run |
 
-Rules for benchmark runs (PLAN.md 5.9): one machine for all runs, record it in `results/MACHINE.md`,
-close other heavy programs, never run two experiments at once, and give Docker 10 to 12 GB.
+Rules for benchmark runs (PLAN.md 5.9): one machine for all runs, close other heavy programs, never
+run two experiments at once, and give Docker 10 to 12 GB. Each run records its machine; the summary
+lists which runs ran where, so a change of hardware cannot go unnoticed.
+
+Turning raw runs into the committed results:
+
+```bash
+uv run python -m bench.summarize      # results/summary.csv, RESULTS.md, MACHINE.md, figures/*.png
+```
+
+Long runs on a machine that may restart: the runner is resumable, so start the same command again.
+To keep a run going without a terminal, use `nohup make bench-all > bench.log 2>&1 &` and never start
+a second copy while one runs (two experiments at once corrupt both).
+
+## Reproducibility check (T40)
+
+```bash
+scripts/fresh_clone_check.sh               # clones the public repository and follows the README:
+                                           # uv sync, lint, oracle check, tests, make golden
+REF=v1.0 scripts/fresh_clone_check.sh      # the same for the tagged release
+```
 
 ## Recovering a broken stack
 
