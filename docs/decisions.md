@@ -2,6 +2,42 @@
 
 Every decision and every deviation from the proposal or `PLAN.md`, newest first. Format: date, ID, decision, reason.
 
+## 2026-11-12 (M3 findings)
+
+### E2: a broker failover can make Spark drop trades as late (watermark), at 10x time compression
+
+`e2/acks-all-no-idempotence/rep2`: Kafka kept every acknowledged trade exactly once (VER-1 PASS),
+but 33 bars of one minute were wrong against both the generator and the topic. Diagnosis: the
+failover stalled partitions 0 and 3 for 14.8 s and the other four for 11.0 s. The 33 wrong bars are
+exactly the 33 symbols on partitions 0 and 3 that traded in the minute those partitions resumed;
+110 of their trades were acknowledged after the other partitions had already resumed. E2 runs
+virtual time at 10x, so 3.8 wall seconds of partition skew is about 38 s of event time, more than the
+10 s watermark: the other partitions had advanced the watermark, and Spark dropped the delayed
+trades as late, as a watermark is designed to do. At real-time speed the same skew would stay inside
+the watermark.
+
+Decision: keep E2's procedure (its measurements are loss, duplicates and stall, which are unaffected)
+and report bar correctness together with this explanation. Lesson for the report: **the watermark
+must exceed the worst partition skew a failure can cause** (here, about 4 s in wall time, times the
+time compression). This is the latency/completeness trade-off of decision D6 shown by a real failure.
+
+### Worker restart during M3
+
+The development VM restarted at about 23:30 UTC on 2026-11-11, stopping Docker and the runner for
+about four hours. Nothing measured was lost (results are written per run); the runner resumed from
+`results/raw/` and repeated only the interrupted run.
+
+## 2026-11-11 (M3 setup)
+
+| Topic | Decision | Reason |
+|---|---|---|
+| E1a matches the paper | `acks=0`, 10 million records of 200 bytes, batch sizes 1 and 50 messages plus 10, 100, 200 for the curve's shape | Kreps et al. section 5 (read 2026-11-11): one producer, 10 million 200-byte messages, batches of 1 and 50, "the Kafka producer currently doesn't wait for acknowledgements"; reported about 50,000 and 400,000 messages/s. **Deviations:** batch size in bytes (n x 200) approximates n messages; "batch size 1" is `batch.size=0`; producer and broker share one 4-core machine (the paper used two 8-core machines with RAID 10 disks). |
+| Rate ladders from capacity probes | E1c: 10k, 30k, 60k per second then one bisection; E1b micro-batch: 40k, 80k, 100k; E1b continuous: 5k to 80k | One-minute probes (6 partitions, 1 s trigger for bars; 4 partitions for pass-through) all kept up at the old ladders' tops (bars 40k/s, micro-batch 80k/s), so the old ladders would only have reported "limited by ladder top". PLAN.md 5.9 allows adapting the ladder to the machine. |
+| E1b continuous run length | 2 minutes per rate (20 s warm-up discarded), not 5 | It is a latency curve, not a sustained-throughput test; the proposal fixes five-minute runs for sustained throughput only. E1c and E1b micro-batch keep five-minute steps. |
+| E2 acks=1 repeats | 6 kills instead of 3 | Loss with acks=1 happens only when the dead leader had unreplicated acknowledged records (first dry run: 2 lost; second: 0), so it is reported as a rate. |
+| Note on D5 | The "end lag at most the largest lag in the first minute" test is lenient when the first minute contains Spark's warm-up backlog; the slope test (below 1% of the input rate) is what fails a rate that Spark cannot sustain | Seen in the probes: first-minute lag peaks of 100k to 530k records from warm-up. Both tests are reported per step in `result.json`. |
+| Benchmark machine | The cloud development VM: 4 vCPUs, 15.7 GB, Docker 29.9.2 (`results/MACHINE.md`) | Matches the proposal's one 16 GB machine and Armbrust et al.'s 4 cores. Shared cloud hardware adds noise (risk R7): compare trends, not absolute numbers. The group can rerun everything on its own machine with `make bench-all`. |
+
 ## 2026-11-11 (M2)
 
 ### Spike S3: continuous mode needs a free core per partition
