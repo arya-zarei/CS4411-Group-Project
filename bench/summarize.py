@@ -234,6 +234,10 @@ def bars(ax, labels, rows, color=BLUE, fmt="{:,.0f}", prefixes=None):
     ax.set_xticks(list(xs), labels)
     top = max((r["max"] for r in rows if r), default=0)
     ax.set_ylim(0, top * 1.18 if top > 0 else 1)  # counts and durations start at zero, even when all are 0
+    if top >= 1000:
+        from matplotlib.ticker import FuncFormatter
+
+        ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:,.0f}"))
 
 
 def plain_log_axis(ax):
@@ -256,6 +260,32 @@ def save(fig, path: Path, note: str):
     fig.text(0.01, 0.01, note, fontsize=7, color=INK2)
     fig.tight_layout(rect=(0, 0.04, 1, 1))
     fig.savefig(path, dpi=200, facecolor=SURFACE)
+
+
+def bar_latency_figure(t, panels, path: Path) -> list[str]:
+    if panels:
+        plt, fig, axes = new_fig(len(panels), width=8.5)
+        for ax, (title, settings, label, common) in zip(axes, panels, strict=True):
+            xs = list(range(len(settings)))
+            for i, (p, color) in enumerate((("p50", BLUE), ("p95", ORANGE), ("p99", AQUA))):
+                ys = [t.get("e1c", s, f"latency_{p}", common)["median"] / 1000 for s in settings]
+                ax.bar([x + (i - 1) * 0.26 for x in xs], ys, width=0.24, color=color, label=p, zorder=2)
+            ax.set_xticks(xs, [label(s) for s in settings])
+            ax.legend(frameon=False, fontsize=8, ncols=3, loc="upper left")
+            style(ax, f"{title}, at {common:,} records/s", "seconds")
+            ax.set_ylim(0, ax.get_ylim()[1] * 1.15)
+        fig.suptitle(
+            "E1c  Bar latency: window end + watermark to row written (RQ1)",
+            x=0.01,
+            ha="left",
+            fontsize=11,
+            color=INK,
+        )
+        save(fig, path,
+                 "Median over 3 runs of each run's percentile. The two sweeps ran on different CPUs (results/MACHINE.md): compare within a panel.")  # fmt: skip
+        plt.close(fig)
+        return [path.name]
+    return []
 
 
 def figures(t: Rows, data, out: Path) -> list[str]:
@@ -364,40 +394,16 @@ def figures(t: Rows, data, out: Path) -> list[str]:
         plt.close(fig)
         made.append("e1c_sustained_throughput.png")
 
-        # bar latency, partitions and triggers in separate panels, each at the highest rate all its
-        # settings were run at (each sweep ran on one CPU; they are not compared with each other)
+        # bar latency, partitions and triggers in separate panels (each sweep ran on one CPU; they are
+        # not compared with each other), one figure per load level. Compared below saturation: at the
+        # top rate the latency is backlog, not the setting's behaviour.
         groups = [("by partitions (trigger 1 s)", part, lambda s: s.split("-")[0].removeprefix("p") + " part."),
                   ("by trigger interval (6 partitions)", trig, lambda s: s.split("-")[1])]  # fmt: skip
-        panels = []
-        for title, settings, label in groups:
-            common = None
-            for rate in sorted({r["rate"] for r in t.rows if r["experiment"] == "e1c" and r["rate"] != ""}):
-                if settings and all(t.get("e1c", s, "latency_p50", rate) for s in settings):
-                    common = rate  # the highest common rate wins
-            if common:
-                panels.append((title, settings, label, common))
-        if panels:
-            plt, fig, axes = new_fig(len(panels), width=8.5)
-            for ax, (title, settings, label, common) in zip(axes, panels, strict=True):
-                xs = list(range(len(settings)))
-                for i, (p, color) in enumerate((("p50", BLUE), ("p95", ORANGE), ("p99", AQUA))):
-                    ys = [t.get("e1c", s, f"latency_{p}", common)["median"] / 1000 for s in settings]
-                    ax.bar([x + (i - 1) * 0.26 for x in xs], ys, width=0.24, color=color, label=p, zorder=2)
-                ax.set_xticks(xs, [label(s) for s in settings])
-                ax.legend(frameon=False, fontsize=8, ncols=3, loc="upper left")
-                style(ax, f"{title}, at {common:,} records/s", "seconds")
-                ax.set_ylim(0, ax.get_ylim()[1] * 1.15)
-            fig.suptitle(
-                "E1c  Bar latency: window end + watermark to row written (RQ1)",
-                x=0.01,
-                ha="left",
-                fontsize=11,
-                color=INK,
-            )
-            save(fig, out / "e1c_bar_latency.png",
-                 "Median over 3 runs of each run's percentile. The two sweeps ran on different CPUs (results/MACHINE.md): compare within a panel.")  # fmt: skip
-            plt.close(fig)
-            made.append("e1c_bar_latency.png")
+        for common in (30000, 60000):
+            panels = [(title, settings, label, common) for title, settings, label in groups
+                      if settings and all(t.get("e1c", s, "latency_p50", common) for s in settings)]  # fmt: skip
+            if panels:
+                made += bar_latency_figure(t, panels, out / f"e1c_bar_latency_{common // 1000}k.png")
 
     # E2: broker crash (RQ2)
     e2 = [s for s in ("acks-1", "acks-all", "acks-all-no-idempotence") if t.get("e2", s, "lost_trades")]
