@@ -22,3 +22,7 @@ settings:
   - {id: p6-100ms, partitions: 6, trigger: 100 milliseconds, rates: [30000, 60000, 90000], dry_run: {skip: true}}
   - {id: p6-500ms, partitions: 6, trigger: 500 milliseconds, rates: [30000, 60000, 90000], dry_run: {skip: true}}
   - {id: p6-5s, partitions: 6, trigger: 5 seconds, rates: [30000, 60000, 90000], dry_run: {skip: true}}
+  # Baseline for the trigger sweep, re-run beside it: the VM moved to a different CPU (2.30 to 2.10 GHz)
+  # between the partition sweep and the trigger sweep (docs/decisions.md, 2026-11-12). Compare the
+  # triggers only with this setting, measured on the same hardware.
+  - {id: p6-1s-b, partitions: 6, trigger: 1 second, rates: [30000, 60000, 90000], dry_run: {skip: true}}
