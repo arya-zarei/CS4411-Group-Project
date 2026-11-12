@@ -21,6 +21,16 @@ and report bar correctness together with this explanation. Lesson for the report
 must exceed the worst partition skew a failure can cause** (here, about 4 s in wall time, times the
 time compression). This is the latency/completeness trade-off of decision D6 shown by a real failure.
 
+### M3 ran on two physical CPUs (the VM moved between hosts on restart)
+
+`results/MACHINE.md` (from each run's own `config.json`): machine A, Xeon at 2.10 GHz, and machine
+B, Xeon at 2.30 GHz, both 4 vCPUs and 15.7 GB. Every comparison the results make is within one
+machine: E2, E3 and the E4 crash runs on A; E1a, E1b, the E1c partition sweep and the E4 cost runs on
+B. The E1c trigger sweep started after the VM moved back to A, so its 1 s baseline is re-measured
+beside it as setting `p6-1s-b`, and the figures compare the trigger sweep only with that baseline.
+Nothing compares numbers across the two machines. Teams rerunning on their own hardware should run
+everything there (`make bench-all`).
+
 ### Worker restart during M3
 
 The development VM restarted at about 23:30 UTC on 2026-11-11, stopping Docker and the runner for

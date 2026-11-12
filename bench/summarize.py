@@ -325,7 +325,10 @@ def figures(t: Rows, data, out: Path) -> list[str]:
 
     # E1c: sustained throughput by partitions and by trigger (RQ1)
     part = [s for s in ("p1-1s", "p3-1s", "p6-1s") if t.get("e1c", s, "sustained_throughput")]
-    trig = [s for s in ("p6-100ms", "p6-500ms", "p6-1s", "p6-5s") if t.get("e1c", s, "sustained_throughput")]
+    # The trigger sweep is compared with its own 1 s baseline (p6-1s-b), measured beside it on the same
+    # hardware; the VM changed CPU between the two sweeps (docs/decisions.md, 2026-11-12).
+    base = "p6-1s-b" if t.get("e1c", "p6-1s-b", "sustained_throughput") else "p6-1s"
+    trig = [s for s in ("p6-100ms", "p6-500ms", base, "p6-5s") if t.get("e1c", s, "sustained_throughput")]
     if part or trig:
         plt, fig, axes = new_fig(2, width=8.5)
         if part:
@@ -361,27 +364,38 @@ def figures(t: Rows, data, out: Path) -> list[str]:
         plt.close(fig)
         made.append("e1c_sustained_throughput.png")
 
-        # bar latency at a rate every setting was run at
-        settings = [
-            s
-            for s in ("p1-1s", "p3-1s", "p6-100ms", "p6-500ms", "p6-1s", "p6-5s")
-            if s in data.get("e1c", {})
-        ]
-        common = None
-        for rate in sorted({r["rate"] for r in t.rows if r["experiment"] == "e1c" and r["rate"] != ""}):
-            if all(t.get("e1c", s, "latency_p50", rate) for s in settings):
-                common = rate  # the highest common rate wins
-        if common:
-            plt, fig, (ax,) = new_fig(width=8.0)
-            xs = list(range(len(settings)))
-            for i, (p, color) in enumerate((("p50", BLUE), ("p95", ORANGE), ("p99", AQUA))):
-                ys = [t.get("e1c", s, f"latency_{p}", common)["median"] / 1000 for s in settings]
-                ax.bar([x + (i - 1) * 0.26 for x in xs], ys, width=0.24, color=color, label=p, zorder=2)
-            ax.set_xticks(xs, settings)
-            ax.legend(frameon=False, fontsize=8, ncols=3, loc="upper left")
-            style(ax, f"E1c  Bar latency at {common:,} records/s (window end + watermark to row written)", "seconds",
-                  "setting (partitions-trigger)")  # fmt: skip
-            save(fig, out / "e1c_bar_latency.png", "Median over 3 runs of each run's percentile.")
+        # bar latency, partitions and triggers in separate panels, each at the highest rate all its
+        # settings were run at (each sweep ran on one CPU; they are not compared with each other)
+        groups = [("by partitions (trigger 1 s)", part, lambda s: s.split("-")[0].removeprefix("p") + " part."),
+                  ("by trigger interval (6 partitions)", trig, lambda s: s.split("-")[1])]  # fmt: skip
+        panels = []
+        for title, settings, label in groups:
+            common = None
+            for rate in sorted({r["rate"] for r in t.rows if r["experiment"] == "e1c" and r["rate"] != ""}):
+                if settings and all(t.get("e1c", s, "latency_p50", rate) for s in settings):
+                    common = rate  # the highest common rate wins
+            if common:
+                panels.append((title, settings, label, common))
+        if panels:
+            plt, fig, axes = new_fig(len(panels), width=8.5)
+            for ax, (title, settings, label, common) in zip(axes, panels, strict=True):
+                xs = list(range(len(settings)))
+                for i, (p, color) in enumerate((("p50", BLUE), ("p95", ORANGE), ("p99", AQUA))):
+                    ys = [t.get("e1c", s, f"latency_{p}", common)["median"] / 1000 for s in settings]
+                    ax.bar([x + (i - 1) * 0.26 for x in xs], ys, width=0.24, color=color, label=p, zorder=2)
+                ax.set_xticks(xs, [label(s) for s in settings])
+                ax.legend(frameon=False, fontsize=8, ncols=3, loc="upper left")
+                style(ax, f"{title}, at {common:,} records/s", "seconds")
+                ax.set_ylim(0, ax.get_ylim()[1] * 1.15)
+            fig.suptitle(
+                "E1c  Bar latency: window end + watermark to row written (RQ1)",
+                x=0.01,
+                ha="left",
+                fontsize=11,
+                color=INK,
+            )
+            save(fig, out / "e1c_bar_latency.png",
+                 "Median over 3 runs of each run's percentile. The two sweeps ran on different CPUs (results/MACHINE.md): compare within a panel.")  # fmt: skip
             plt.close(fig)
             made.append("e1c_bar_latency.png")
 
@@ -498,7 +512,8 @@ def markdown(t: Rows, figs: list[str], raw: Path) -> str:
 
 def machine_md(raw: Path) -> str:
     """results/MACHINE.md: the machine and versions every run in `raw` recorded (PLAN.md 4.5, 5.9)."""
-    configs = [json.loads(f.read_text()) for f in sorted(raw.glob("*/*/rep*/config.json"))]
+    files = [f for f in sorted(raw.glob("*/*/rep*/config.json")) if (f.parent / "result.json").exists()]
+    configs = [json.loads(f.read_text()) for f in files]
     machines = {json.dumps(c.get("machine", {}), sort_keys=True) for c in configs}
     commits = sorted({c.get("git_commit") or "?" for c in configs})
     started = sorted(c.get("started_at", "") for c in configs)
@@ -525,11 +540,22 @@ def machine_md(raw: Path) -> str:
         lines += ["All runs recorded the same machine:", "", "| | |", "|---|---|"]
         lines += [f"| {k} | {v} |" for k, v in m.items()]
     else:
+        names = {m: f"machine {chr(65 + i)}" for i, m in enumerate(sorted(machines))}
+        lines += [f"**The runs recorded {len(machines)} different machines.** PLAN.md 5.9 asks for one. "
+                  "The development VM was moved between physical hosts when it restarted. Compare results "
+                  "only within one machine; the table below says which runs ran where.", ""]  # fmt: skip
+        for m, name in names.items():
+            lines += [f"- **{name}**: " + ", ".join(f"{k} {v}" for k, v in json.loads(m).items())]
+        per = defaultdict(lambda: defaultdict(int))
+        for f, c in zip(files, configs, strict=True):
+            per[f"{f.parts[-4]} / {f.parts[-3]}"][
+                names[json.dumps(c.get("machine", {}), sort_keys=True)]
+            ] += 1
+        lines += ["", "| experiment / setting | ran on (runs) |", "|---|---|"]
         lines += [
-            f"**Warning: runs recorded {len(machines)} different machines.** PLAN.md 5.9 asks for one.",
-            "",
+            f"| {k} | {', '.join(f'{n} ({c})' for n, c in sorted(v.items()))} |"
+            for k, v in sorted(per.items())
         ]
-        lines += [f"- `{m}`" for m in sorted(machines)]
     lines += ["", f"Runs: {len(configs)}, from {started[0] if started else '?'} to {started[-1] if started else '?'} (UTC).",
               f"Git commits: {', '.join(c[:10] for c in commits)}.", "", "## Versions", "", "| Component | Version |", "|---|---|"]  # fmt: skip
     lines += [f"| {k} | `{v}` |" for k, v in env.items()]
