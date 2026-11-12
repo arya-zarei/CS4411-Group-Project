@@ -13,8 +13,8 @@ Every decision and every deviation from the proposal or `PLAN.md`, newest first.
   dashboard with 12 alerts within about two minutes.
 * **E1c latency figure**: compared at 30,000 and 60,000 records/s, below saturation. At the top rate
   (90,000) bar latency is backlog (20 to 40 s) and says nothing about the setting.
-* **`v1.0`** tags the commit that adds these notes; it differs from the rehearsed commit only in
-  documentation.
+* **`v1.0`**: the development environment refuses tag pushes (HTTP 403), so a maintainer pushes the
+  tag on `main`. Everything after the rehearsed commit (8a8122c) is documentation only.
 
 ## 2026-11-12 (M3 findings)
 

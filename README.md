@@ -9,7 +9,7 @@ and 3-sigma alerts into PostgreSQL; Grafana shows them live. All of it starts wi
 exactly-once output, reproduce two published results (Kreps et al. 2011, Fig. 4; Armbrust et al.
 2018, Fig. 7), and every run is checked bar by bar against an oracle.
 
-> **Status: built, measured and verified (M0 to M4).** `make golden` passes; all experiments ran
+> **Status: built, measured and verified (M0 to M4; the `v1.0` tag is waiting to be pushed).** `make golden` passes; all experiments ran
 > three times per setting (`results/`). Open items that need the group: the live Coinbase run and a
 > teammate's quickstart (T27, T28), a second-machine check (T40), a license (D8), and confirming the
 > alert rule (D1). See [Status and open items](#status-and-open-items).
@@ -97,7 +97,7 @@ commit and machine (git-ignored; the summaries are committed). Details: [docs/ru
 | ✅ | **M1 End-to-end bars** | G1: `make golden` passes from a clean `make reset` | Done Nov 6 |
 | ✅ | **M2 Output and measurement** | G2: every experiment has a working dry run | Done Nov 11 (T27 live run and T28 teammate check open) |
 | ✅ | **M3 Experiments** | G3: `results/summary.csv` and figures committed | Done Nov 12 |
-| ✅ | **M4 Freeze** | G4: `v1.0` tag pushed | Done Nov 12: fresh clone and demo rehearsal (with crashes) pass; T40 on a second machine open |
+| 🟡 | **M4 Freeze** | G4: `v1.0` tag pushed | Fresh clone and demo rehearsal (with crashes) pass. Open: push the `v1.0` tag (a maintainer; see below), T40 on a second machine |
 
 ## Status and open items
 
@@ -110,6 +110,7 @@ These need a person or a different machine; everything else is done and tested.
 | T28 / T40: quickstart and fresh clone on a teammate's machine | Needs someone who did not write the code, and a second machine | `scripts/fresh_clone_check.sh`, then comment on the issue |
 | D1: the alert's "price change" = log return of the close | Group decision | Confirm in the group chat |
 | D8: license | Group decision | Add a `LICENSE` file (MIT is the usual choice) |
+| Tag `v1.0` (gate G4) | The development environment cannot push tags | `git fetch && git tag -a v1.0 -m "v1.0" origin/main && git push origin v1.0`, or GitHub, Releases, Draft a new release |
 
 Known limitations (also in the report): one machine, so no network partitions and no multi-node
 Spark; synthetic data for every measurement; security features described, not measured; virtual time

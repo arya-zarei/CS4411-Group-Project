@@ -497,8 +497,8 @@ Parallel streams again: dashboard and docs; Kafka-layer verification and fault i
 
 - [ ] **T40** Fresh-clone test on a second machine. **Fresh clone passed on Nov 12 (`scripts/fresh_clone_check.sh`: lint, oracle, 80 tests, `make golden` PASS) on the development VM; a teammate's second machine is still open.** *Done when:* quickstart works and `make golden` passes there.
 - [x] **T41** `docs/runbook.md`, `docs/architecture.md`, README finished, limitations written down.
-- [x] **T42** Tag `v1.0`. Rehearse the demo from the tagged commit. **Done Nov 12: from a fresh clone, `live_check.sh` with a Spark kill and a broker kill ended in PASS (6,000/6,000 bars, 29/29 alerts), and `docker compose up` gave a populated dashboard with alerts within about two minutes.**
-- **Gate G4:** tag pushed. **Passed Nov 12 (`v1.0`).**
+- [ ] **T42** Tag `v1.0`. Rehearse the demo from the tagged commit. **Rehearsal done Nov 12; tag push open (see Gate G4): from a fresh clone, `live_check.sh` with a Spark kill and a broker kill ended in PASS (6,000/6,000 bars, 29/29 alerts), and `docker compose up` gave a populated dashboard with alerts within about two minutes.**
+- **Gate G4:** tag pushed. **Everything else passed Nov 12. The tag itself must be pushed by a maintainer: the development environment refuses tag pushes (HTTP 403). From a clone: `git tag -a v1.0 -m "v1.0" origin/main && git push origin v1.0`, or GitHub, Releases, Draft a new release, tag `v1.0` on `main`.**
 
 ### Spikes (do early, record outcomes in `docs/decisions.md`)
 
