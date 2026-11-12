@@ -91,6 +91,10 @@ def summarize(data) -> Rows:
         for s, runs in data.get(exp, {}).items():
             if any("sustained_rate" in r for r in runs):
                 t.add(exp, s, "sustained_throughput", "records/s", [r.get("sustained_rate") for r in runs])
+                # 1 when the search found no failing rate (ladder top or generator limit): the sustained
+                # rate is then a lower bound, not Spark's measured limit
+                t.add(exp, s, "sustained_is_lower_bound", "fraction of runs",
+                      [0.0 if r.get("limited_by") == "spark" else 1.0 for r in runs])  # fmt: skip
             for rate, steps in steps_by_rate(runs).items():
                 key = "latency" if exp == "e1b" else "bar_latency"
                 for p in ("p50", "p95", "p99"):
@@ -208,7 +212,12 @@ def new_fig(n=1, width=7.0, height=3.6):
     return plt, fig, list(axes[0])
 
 
-def bars(ax, labels, rows, color=BLUE, fmt="{:,.0f}"):
+def lower_bound(t, exp, setting) -> bool:
+    r = t.get(exp, setting, "sustained_is_lower_bound") if setting else None
+    return bool(r) and r["min"] == 1.0
+
+
+def bars(ax, labels, rows, color=BLUE, fmt="{:,.0f}", prefixes=None):
     """Median bar with min-max whisker and every run as a dot; value label above each bar."""
     xs = range(len(labels))
     med = [r["median"] if r else 0 for r in rows]
@@ -220,7 +229,7 @@ def bars(ax, labels, rows, color=BLUE, fmt="{:,.0f}"):
         if len(vals) > 1:
             ax.vlines(x, r["min"], r["max"], color=INK2, linewidth=1, zorder=3)
             ax.scatter([x] * len(vals), vals, s=10, color=INK, zorder=4)
-        ax.annotate(fmt.format(r["median"]), (x, r["max"]), textcoords="offset points", xytext=(0, 4),
+        ax.annotate((prefixes[x] if prefixes else "") + fmt.format(r["median"]), (x, r["max"]), textcoords="offset points", xytext=(0, 4),
                     ha="center", fontsize=8, color=INK)  # fmt: skip
     ax.set_xticks(list(xs), labels)
     top = max((r["max"] for r in rows if r), default=0)
@@ -234,6 +243,13 @@ def plain_log_axis(ax):
     ax.yaxis.set_major_locator(LogLocator(base=10, subs=(1.0, 2.0, 5.0)))
     ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:,.0f}"))
     ax.yaxis.set_minor_formatter(FuncFormatter(lambda v, _: ""))
+
+
+def thousands_x_axis(ax):
+    """x tick labels with thousands separators (20,000 rather than 20000)."""
+    from matplotlib.ticker import FuncFormatter
+
+    ax.xaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:,.0f}"))
 
 
 def save(fig, path: Path, note: str):
@@ -288,12 +304,15 @@ def figures(t: Rows, data, out: Path) -> list[str]:
                 ax.annotate(f"continuous {p}", pts[-1], textcoords="offset points", xytext=(6, 0),
                             va="center", fontsize=8, color=INK)  # fmt: skip
         sus = t.get("e1b", micro, "sustained_throughput") if micro else None
-        if sus:
-            ax.axvline(sus["median"], color=AQUA, linewidth=2, linestyle="--")
-            ax.annotate(f"micro-batch max sustained\n{sus['median']:,.0f} records/s", (sus["median"], ax.get_ylim()[1]),
-                        textcoords="offset points", xytext=(-6, -4), ha="right", va="top", fontsize=8, color=INK)  # fmt: skip
         ax.set_yscale("log")
         plain_log_axis(ax)
+        thousands_x_axis(ax)
+        if sus:
+            ax.axvline(sus["median"], color=AQUA, linewidth=2, linestyle="--")
+            bound = "≥ " if lower_bound(t, "e1b", micro) else ""
+            # label at the bottom of the line, clear of the continuous-mode labels at the top right
+            ax.annotate(f"micro-batch sustained\n{bound}{sus['median']:,.0f} records/s", (sus["median"], ax.get_ylim()[0]),
+                        textcoords="offset points", xytext=(-6, 6), ha="right", va="bottom", fontsize=8, color=INK)  # fmt: skip
         style(ax, "E1b  Pass-through latency vs input rate (Armbrust et al., Fig. 7)", "latency, ms (log scale)",
               "input rate, records per second")  # fmt: skip
         save(
@@ -314,6 +333,7 @@ def figures(t: Rows, data, out: Path) -> list[str]:
                 axes[0],
                 [s.split("-")[0].removeprefix("p") for s in part],
                 [t.get("e1c", s, "sustained_throughput") for s in part],
+                prefixes=["≥ " if lower_bound(t, "e1c", s) else "" for s in part],
             )
             style(axes[0], "by partitions (trigger 1 s)", "sustained records per second", "Kafka partitions")
         if trig:
@@ -322,6 +342,7 @@ def figures(t: Rows, data, out: Path) -> list[str]:
                 [s.split("-")[1] for s in trig],
                 [t.get("e1c", s, "sustained_throughput") for s in trig],
                 color=BLUE,
+                prefixes=["≥ " if lower_bound(t, "e1c", s) else "" for s in trig],
             )
             style(
                 axes[1],
@@ -332,7 +353,11 @@ def figures(t: Rows, data, out: Path) -> list[str]:
         fig.suptitle(
             "E1c  Bars pipeline: sustained throughput (RQ1)", x=0.01, ha="left", fontsize=11, color=INK
         )
-        save(fig, out / "e1c_sustained_throughput.png", note)
+        save(
+            fig,
+            out / "e1c_sustained_throughput.png",
+            note + " ≥: no failing rate found (ladder top or input limit).",
+        )
         plt.close(fig)
         made.append("e1c_sustained_throughput.png")
 
@@ -368,6 +393,10 @@ def figures(t: Rows, data, out: Path) -> list[str]:
         style(axes[0], "write stall (longest ack gap in a partition)", "seconds")
         bars(axes[1], e2, [t.get("e2", s, "lost_trades") for s in e2], color=ORANGE, fmt="{:.0f}")
         style(axes[1], "acknowledged trades lost", "trades")
+        if all(t.get("e2", s, "lost_trades")["max"] == 0 for s in e2):
+            kills = sum(len(data["e2"][s]) for s in e2)
+            axes[1].text(0.5, 0.55, f"no acknowledged trade lost\nin {kills} broker kills", transform=axes[1].transAxes,
+                         ha="center", va="center", fontsize=10, color=INK)  # fmt: skip
         fig.suptitle(
             "E2  Killing the partition-0 leader broker mid-run (RF 3, min ISR 2) (RQ2)",
             x=0.01,
