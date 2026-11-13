@@ -234,7 +234,7 @@ See section 4.3. Additional requirements:
 
 ### 5.5 Alert rule and PostgreSQL sink (SNK)
 
-**Alert rule (oracle definition). [DECISION D1: the proposal says "price change more than three standard deviations from that symbol's average over the previous 30 bars". This plan reads "price change" as the bar-to-bar log return of the close.]**
+**Alert rule (oracle definition). [DECISION D1, confirmed by the group on Nov 13: the proposal says "price change more than three standard deviations from that symbol's average over the previous 30 bars". "Price change" is the bar-to-bar log return of the close.]**
 
 For each symbol, over its *existing* bars in time order:
 
@@ -552,18 +552,18 @@ Test layers: unit tests (oracle versus expected files, generator golden hash, al
 | Reproducibility | Public repo, pinned versions, golden dataset, `make golden`, scripted experiments, `results/MACHINE.md` |
 | Presentation | One figure per research question from `results/figures/` |
 
-## 13. Open decisions (confirm in the group chat)
+## 13. Decisions (D1 and D8 closed Nov 13; the rest are as recommended)
 
 | ID | Decision | Recommendation |
 |---|---|---|
-| D1 | What "price change" means in the alert rule | Bar-to-bar log return of the close (section 5.5). The alternative is close minus open within the bar. Pick one before T12. |
+| D1 | What "price change" means in the alert rule | **Decided (Nov 13): bar-to-bar log return of the close** (section 5.5). The alternative, close minus open within the bar, was rejected. |
 | D2 | Spark deployment | `local[4]` in one container. |
 | D3 | Demo generator speed | Virtual mode at 30x, so alerts appear after about 80 seconds. |
 | D4 | Message format | JSON. |
 | D5 | Exact "keeps up" test for sustained throughput | Section 5.9 rule. |
 | D6 | Watermark delay | 10 seconds. |
 | D7 | Symbol names | `SYM001` to `SYM100` (clearly synthetic). |
-| D8 | License and public visibility | Public (proposal). Choose a license (for example MIT). |
+| D8 | License and public visibility | **Decided (Nov 13): public (proposal), MIT license** (`LICENSE`). |
 | D9 | Language of the generator | Python (`confluent-kafka`). Switch to Java only if S4 shows Python cannot saturate the pipeline. |
 
 ## Appendix A: PostgreSQL schema

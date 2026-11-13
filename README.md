@@ -11,8 +11,8 @@ exactly-once output, reproduce two published results (Kreps et al. 2011, Fig. 4;
 
 > **Status: built, measured and verified (M0 to M4; the `v1.0` tag is waiting to be pushed).** `make golden` passes; all experiments ran
 > three times per setting (`results/`). Open items that need the group: the live Coinbase run and a
-> teammate's quickstart (T27, T28), a second-machine check (T40), a license (D8), and confirming the
-> alert rule (D1). See [Status and open items](#status-and-open-items).
+> teammate's quickstart (T27, T28) and a second-machine check (T40). The alert rule (D1) is confirmed
+> and the project is MIT licensed (D8). See [Status and open items](#status-and-open-items).
 
 ## Results at a glance
 
@@ -86,6 +86,7 @@ commit and machine (git-ignored; the summaries are committed). Details: [docs/ru
 | [scripts/](scripts/) | `golden.sh`, `live_check.sh`, `fresh_clone_check.sh` |
 | [infra/](infra/) | Kafka topics, PostgreSQL schema, Grafana dashboard and data source, Dockerfiles |
 | [data/sample/](data/sample/) | Golden dataset (60,163 trades) with expected bars, alerts and a SHA-256 manifest |
+| [LICENSE](LICENSE) | MIT license |
 | [tools/](tools/) | The oracle and dataset generator (`gen_sample_dataset.py`), dashboard generator |
 | [results/](results/) | Summary, figures, machine record |
 
@@ -101,15 +102,13 @@ commit and machine (git-ignored; the summaries are committed). Details: [docs/ru
 
 ## Status and open items
 
-These need a person or a different machine; everything else is done and tested.
+These need a person or a different machine; everything else is done and tested. Closed on Nov 13: D1 (the alert's "price change" is the log return of the close, confirmed by the group) and D8 (MIT license).
 
 | Item | Why it is open | How to close it |
 |---|---|---|
 | T27 / S5: 10 minutes on live Coinbase trades | The development environment cannot open WebSockets; the adapter is tested against a protocol-faithful fake feed and offline from a capture | `make demo-live` for 10 minutes, then `uv run python -m verify.verify --from-topic` |
 | T34: capture a live session for the demo fallback | Same | `make demo-live` writes `runs/captures/coinbase-live.jsonl` |
 | T28 / T40: quickstart and fresh clone on a teammate's machine | Needs someone who did not write the code, and a second machine | `scripts/fresh_clone_check.sh`, then comment on the issue |
-| D1: the alert's "price change" = log return of the close | Group decision | Confirm in the group chat |
-| D8: license | Group decision | Add a `LICENSE` file (MIT is the usual choice) |
 | Tag `v1.0` (gate G4) | The development environment cannot push tags | `git fetch && git tag -a v1.0 -m "v1.0" origin/main && git push origin v1.0`, or GitHub, Releases, Draft a new release |
 
 Known limitations (also in the report): one machine, so no network partitions and no multi-node
@@ -117,3 +116,7 @@ Spark; synthetic data for every measurement; security features described, not me
 compression magnifies failover skew relative to the watermark (docs/decisions.md, 2026-11-12); the
 benchmark VM changed CPU between experiments, and results are only compared within one machine
 (results/MACHINE.md).
+
+## License
+
+[MIT](LICENSE), copyright 2026 the authors. Third-party images, packages and data feeds keep their own licenses and terms.

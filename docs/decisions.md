@@ -2,6 +2,15 @@
 
 Every decision and every deviation from the proposal or `PLAN.md`, newest first. Format: date, ID, decision, reason.
 
+## 2026-11-13 (M4)
+
+* **D1 confirmed by the group:** "price change" in the alert rule is the bar-to-bar log return of the
+  close. Nothing in the code changes (the oracle, `verify/reference.py`, `spark/alert_rule.py` and
+  `data/sample/` already use it); the open question is closed.
+* **D8 decided: MIT license.** `LICENSE` added (copyright the three group members, 2026). The
+  repository stays public, as the proposal says. Docker images, Python packages and the Coinbase feed keep their own
+  licenses and terms; nothing from them is copied into the repo. `pyproject.toml` declares the license.
+
 ## 2026-11-12 (M4)
 
 * **Fresh-clone check (T40)**: `scripts/fresh_clone_check.sh` cloned `main` from GitHub into an empty
@@ -110,7 +119,7 @@ On `local[4]`, the pass-through job in continuous mode moved 14,997 of 14,997 re
 
 ### D1 adopted: "price change" in the alert rule is the log return of the close
 
-Taken as the plan recommends, because the oracle and the golden dataset (23 expected alerts) already define it that way. **Confirm in the group;** changing it means changing `tools/gen_sample_dataset.py`, `verify/reference.py` and `spark/alert_rule.py` together and regenerating `data/sample/`.
+Taken as the plan recommends, because the oracle and the golden dataset (23 expected alerts) already define it that way. **Confirmed by the group on 2026-11-13.** Changing it would mean changing `tools/gen_sample_dataset.py`, `verify/reference.py` and `spark/alert_rule.py` together and regenerating `data/sample/`.
 
 ### M1 build: choices and deviations
 

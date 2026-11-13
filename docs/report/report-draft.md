@@ -117,7 +117,7 @@ Describe: the generator (seeded random-walk prices for 100 symbols with a busies
 ratio of about 10, log-normal sizes, permanent price shocks of 1.5% to 3% at known times after a
 30-bar warm-up; virtual, realtime and replay modes; per-trade acknowledgement log); the Spark job
 (parsing with an explicit schema, `min_by`/`max_by` ordered by (time, trade id) for deterministic
-open and close, VWAP via `try_divide`); the alert rule (decision D1: bar-to-bar log return of the
+open and close, VWAP via `try_divide`); the alert rule (decision D1, confirmed by the group: bar-to-bar log return of the
 close; mean and sample standard deviation of the previous 30 changes; alert when |change - mean| >
 3 sd); the sink (one PostgreSQL transaction per batch; alert history read back from the table);
 Grafana; and the live Coinbase producer with capture and replay. Screenshot: the dashboard
