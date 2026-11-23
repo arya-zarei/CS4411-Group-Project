@@ -25,6 +25,12 @@ git archive --format=zip --prefix="$NAME/" -o "dist/$NAME.zip" "$REF"
 # The submission has one Markdown file, the README. Notes, plans and generated .md tables stay in the
 # repository only (the report, report/main.tex, carries what a reader needs).
 unzip -Z1 "dist/$NAME.zip" | grep -E '\.md$' | grep -v -x "$NAME/README.md" | xargs -d '\n' zip -q -d "dist/$NAME.zip"
+# Drop folders that are now empty (zip keeps their entries).
+unzip -Z1 "dist/$NAME.zip" > "dist/.entries"
+grep '/$' "dist/.entries" | while read -r d; do
+  grep -q -F -x -v "$d" <(grep -F "$d" "dist/.entries") || zip -q -d "dist/$NAME.zip" "$d"
+done
+rm -f "dist/.entries"
 
 # Guards: the repo is public, so no handouts or rubrics; the project says no file over 5 MB.
 if unzip -Z1 "dist/$NAME.zip" | grep -i -E 'rubric|handout|\.local/|\.env$|\.pem$'; then
