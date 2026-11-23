@@ -2,6 +2,8 @@
 
 Group 6: Arya Zarei, Rawad Alharastani, Mark Samwaiel. COMPSCI 4411/9538.
 
+> **Superseded by `report/main.tex` (LaTeX, compiles to the PDF); kept for reference.**
+>
 > **Draft content for the final report.** The course requires the report as a PDF made with the
 > provided Overleaf (LaTeX) template: port this text there. Numbers in section 6 come from
 > `results/RESULTS.md` and `results/summary.csv`; figures from `results/figures/`. Where a sentence

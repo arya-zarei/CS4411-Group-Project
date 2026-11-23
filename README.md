@@ -1,136 +1,108 @@
-# Real-Time Market-Data Pipeline with Apache Kafka and Spark Structured Streaming
+# Kafka and Spark market-data pipeline
 
-Group 6, COMPSCI 4411/9538 (Databases 2): Arya Zarei, Rawad Alharastani, Mark Samwaiel.
+COMPSCI 4411/9538 (Databases 2), Group 6: Arya Zarei, Rawad Alharastani, Mark Samwaiel.
 
-A seeded trade generator publishes trades for 100 symbols to a 3-broker Kafka cluster (KRaft, RF 3,
-min ISR 2); a PySpark Structured Streaming job computes 1-minute bars (open, high, low, close, VWAP)
-and 3-sigma alerts into PostgreSQL; Grafana shows them live. All of it starts with one
-`docker compose up`. Scripted experiments measure latency, throughput, crash recovery and the cost of
-exactly-once output, reproduce two published results (Kreps et al. 2011, Fig. 4; Armbrust et al.
-2018, Fig. 7), and every run is checked bar by bar against an oracle.
+A trade generator publishes trades for 100 symbols to a 3-broker Kafka cluster. A PySpark Structured
+Streaming job turns them into 1-minute bars (open, high, low, close, VWAP) and 3-sigma alerts, writes
+both to PostgreSQL, and Grafana shows them live. A set of scripted experiments measures latency,
+throughput, crash recovery and the cost of exactly-once output, and every run is checked against an
+exact expected answer. The report is in `report/`.
 
-> **Status: built, measured and verified (M0 to M4; the `v1.0` tag is waiting to be pushed).** `make golden` passes; all experiments ran
-> three times per setting (`results/`). Open items that need the group: the live Coinbase run and a
-> teammate's quickstart (T27, T28) and a second-machine check (T40). The alert rule (D1) is confirmed
-> and the project is MIT licensed (D8). See [Status and open items](#status-and-open-items).
+## What you need
 
-## Results at a glance
+- Docker with Compose v2, and 10 to 12 GB of memory for Docker (use `make up LITE=1` if you have less)
+- [uv](https://docs.astral.sh/uv/) (installs the pinned Python and packages)
+- `make`
 
-Medians over three runs, on one 4-vCPU, 16 GB machine. Full tables: [results/RESULTS.md](results/RESULTS.md);
-every number: [results/summary.csv](results/summary.csv); machine and versions: [results/MACHINE.md](results/MACHINE.md).
-
-| Question | Finding | Figure |
-|---|---|---|
-| Reproduction (a): producer batching | 19,798 records/s unbatched, 525,376 with 50-message batches (26x; the paper: about 8x). Shape reproduced. | [e1a](results/figures/e1a_producer_batching.png) |
-| Reproduction (b): continuous vs micro-batch | Continuous: p50 43 to 83 ms up to 40,000 records/s, saturating at 80,000 (p50 1.8 s). Micro-batch sustained at least 100,000 records/s (our input limit) at p50 0.3 to 0.6 s. Shape reproduced. | [e1b](results/figures/e1b_continuous_vs_microbatch.png) |
-| RQ1: partitions and trigger | 1 partition sustains about 75,000 records/s; 3 and 6 partitions at least 90,000 (our input limit). Bar latency p50 is 2 to 3.5 s; the best trigger depends on load: 500 ms at 30,000 records/s (1.7 s), 1 s at 60,000 (4.9 s), because shorter triggers only add overhead once a batch takes longer than the interval; 5 s is slowest (7 to 9 s). | [throughput](results/figures/e1c_sustained_throughput.png), [latency 30k](results/figures/e1c_bar_latency_30k.png), [60k](results/figures/e1c_bar_latency_60k.png) |
-| RQ2: broker crash | No acknowledged trade lost in 12 leader kills. acks=all stalls every partition for about 9 s until the dead broker is fenced; acks=1 stalls only its partitions (about 10 s). | [e2](results/figures/e2_broker_crash.png) |
-| RQ2: Spark crash | First new bar 12.8 s (replay) to 14.6 s (live) after a SIGKILL; output exact in all runs. | [e3](results/figures/e3_spark_recovery.png) |
-| RQ3: exactly-once cost | A crash between the database commit and Spark's commit left 300 duplicate rows with plain inserts, 0 with upserts, every time; no measurable cost at 2,000 records/s. | [e4](results/figures/e4_exactly_once.png) |
-
-## Quickstart
-
-Requires Docker with 10 to 12 GB of memory (or `make up LITE=1`) and [uv](https://docs.astral.sh/uv/).
+## Run it
 
 ```bash
-git clone https://github.com/arya-zarei/CS4411-Group-Project.git && cd CS4411-Group-Project
-uv sync          # Python tools (pinned in uv.lock)
-make up          # Kafka x3, PostgreSQL, Grafana, Spark and the generator; then open http://localhost:3000
-make golden      # replay the golden dataset through Kafka and Spark and verify every bar and alert: PASS
-make help        # every target
+uv sync          # Python tools, pinned in uv.lock
+make up          # builds and starts Kafka x3, PostgreSQL, Grafana, Spark and the generator
 ```
 
-`make up` runs the demo: the generator at 30x virtual speed (480 virtual minutes in 16 minutes) with
-price shocks after the 30-bar warm-up, so alerts appear after about 80 seconds. The dashboard needs no
-login. Other endpoints: Spark UI http://localhost:4040; PostgreSQL `localhost:5432` (user `pipeline`,
-database `market`); Kafka `localhost:29092` to `29094`. `make reset` stops everything and deletes all
-data. Behind a TLS-inspecting proxy, pass its CA: `EXTRA_CA_FILE=$PWD/.local/proxy-ca.pem make up`
-(the file must be inside the project folder).
+Open http://localhost:3000 (Grafana, no login). The generator replays a synthetic day at 30 times real
+speed, so the first bars appear after about a minute and the first alerts after about 80 seconds.
+Other addresses: Spark UI http://localhost:4040, PostgreSQL `localhost:5432` (user `pipeline`, database
+`market`), Kafka `localhost:29092` to `29094`.
 
-## Reproducing everything
+```bash
+make down        # stop, keep the data
+make reset       # stop and delete all data and volumes
+make help        # list every target
+```
 
-| Goal | Command |
+Behind a TLS-inspecting proxy, build with its CA certificate (the file must be inside this folder):
+`EXTRA_CA_FILE=$PWD/.local/proxy-ca.pem make up`.
+
+## Check that it is correct
+
+```bash
+make test        # unit tests, plus PostgreSQL integration tests when a database is running
+make golden      # replays data/sample through Kafka and Spark, then compares every bar and alert
+                 # with the expected answer; ends with PASS
+```
+
+`make golden` builds the images and takes a few minutes. To check the pipeline while a broker and Spark
+are killed mid-run: `KILL_SPARK_AT=15 KILL_BROKER_AT=35 scripts/live_check.sh`.
+
+## Run the experiments
+
+```bash
+make bench-dry   # a short run of every experiment, to check that they work
+make bench-e2    # one experiment: e1a, e1b, e1c, e2, e3 or e4
+make bench-all   # everything, three runs per setting, about 12 hours; safe to stop and resume
+uv run python -m bench.summarize   # tables and figures from the raw runs
+```
+
+Raw output goes to `results/raw/<experiment>/<setting>/rep<k>/` (not in the repository). The committed
+summary is `results/summary.csv`, and the figures are in `results/figures/`. Run the experiments with
+nothing else using the machine.
+
+## What is where
+
+| Path | Contents |
 |---|---|
-| The golden dataset | `uv run python tools/gen_sample_dataset.py --out data/sample --check` prints `MATCH` |
-| Whole-pipeline correctness | `make golden`; with crashes: `KILL_SPARK_AT=15 KILL_BROKER_AT=35 scripts/live_check.sh` |
-| All experiments (about 12 hours, resumable) | `make bench-all`; or one: `make bench-e2`; quick check: `make bench-dry` |
-| Tables and figures from the raw runs | `uv run python -m bench.summarize` |
-| The Kafka, Spark and producer configuration of every experiment | [results/CONFIGURATION.md](results/CONFIGURATION.md); regenerate with `uv run python -m bench.config_report` |
-| The submission zip, and a check that it works unzipped | `make bundle`, then `scripts/bundle_check.sh` |
-| A fresh clone, end to end | `scripts/fresh_clone_check.sh` |
-| Tests | `make test` (unit and PostgreSQL integration tests; CI runs them on every push) |
+| `docker-compose.yml`, `docker-compose.lite.yml` | The whole stack; the lite file lowers memory use |
+| `generator/tradegen/` | Trade generator: seeded virtual mode, realtime mode, file replay, and a live Coinbase mode |
+| `spark/` | `bars_job.py` (bars and alerts), `sink.py` (PostgreSQL upserts), `alert_rule.py`, `progress_listener.py`, `passthrough_job.py` (benchmarks) |
+| `verify/` | `reference.py` (the expected bars and alerts), `verify.py` (compares a run with them), `kafka_layer.py` (checks the Kafka topic against what the producer sent) |
+| `tools/` | `gen_sample_dataset.py` (defines the trade model, the bars and the alert rule), `make_dashboard.py` |
+| `data/sample/` | Golden dataset: 60,163 trades, the expected 4,000 bars and 23 alerts, and a checksum manifest |
+| `bench/` | Experiment runner, metric collectors, `summarize.py`; the experiments are `bench/experiments/*.yaml` |
+| `infra/` | Kafka topic script, PostgreSQL schema, Grafana dashboard and data source, Dockerfiles |
+| `scripts/` | `golden.sh`, `live_check.sh`, `fresh_clone_check.sh`, `make_bundle.sh`, `bundle_check.sh` |
+| `tests/` | Unit and integration tests |
+| `results/` | `summary.csv` and `figures/` |
+| `report/` | The final report in LaTeX (`main.tex`), with its figures and bibliography |
 
-Every run writes `results/raw/<experiment>/<setting>/rep<k>/` with its configuration, versions, git
-commit and machine (git-ignored; the summaries are committed). Details: [docs/runbook.md](docs/runbook.md).
+## How it fits together
 
-## Documentation
+1. `tradegen` sends each trade to the Kafka topic `trades` (6 partitions, replication factor 3, minimum
+   in-sync replicas 2), keyed by symbol, with `acks=all` and an idempotent producer.
+2. `spark/bars_job.py` reads the topic, groups trades into 1-minute event-time windows per symbol with a
+   10-second watermark, and writes each micro-batch to PostgreSQL in one transaction, using
+   `INSERT ... ON CONFLICT DO UPDATE`, so a replayed batch after a crash changes nothing.
+3. An alert fires when a bar's log return is more than 3 standard deviations from the mean of the
+   previous 30 bars of that symbol (`spark/alert_rule.py`).
+4. Grafana reads `bars`, `alerts` and `query_progress` from PostgreSQL.
 
-| Document | Contents |
-|---|---|
-| [docs/architecture.md](docs/architecture.md) | How Kafka and Spark Structured Streaming work and integrate; failure behaviour with evidence; design trade-offs |
-| [results/RESULTS.md](results/RESULTS.md) | Every measured result |
-| [results/CONFIGURATION.md](results/CONFIGURATION.md) | Kafka, Spark and producer settings of each experiment (generated from the files that drive the runs) |
-| [docs/decisions.md](docs/decisions.md) | Every decision, deviation and finding, dated, with reasons |
-| [docs/runbook.md](docs/runbook.md) | Running the demo, the checks and each experiment; recovering a broken stack |
-| [docs/report/report-draft.md](docs/report/report-draft.md) | Draft of the final report, mapped to the evaluation rubric (to port to the course's LaTeX template) |
-| [docs/presentation.md](docs/presentation.md) | 15-minute presentation plan and demo script |
-| [PLAN.md](PLAN.md) | Requirements, milestones and tasks |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | Workflow and the checks to run before pushing |
-| [docs/proposal/proposal.pdf](docs/proposal/proposal.pdf) | The approved proposal |
+`tools/gen_sample_dataset.py` is the reference for the trade model, the bars and the alert rule.
+`verify/reference.py` and `spark/alert_rule.py` are copies of its logic, and the tests fail if they differ.
+If you change the rule, change all three and regenerate the dataset:
+`uv run python tools/gen_sample_dataset.py --out data/sample`.
 
-## Repository
+## Live market data
 
-| Path | What |
-|---|---|
-| [generator/tradegen/](generator/tradegen/) | Trade generator: virtual, realtime, replay and live Coinbase modes; per-trade acknowledgement log |
-| [spark/](spark/) | Bars and alerts job, PostgreSQL sink, progress listener, pass-through job |
-| [verify/](verify/) | Oracle (`reference.py`), bar and alert verifier, Kafka-layer verifier |
-| [bench/](bench/) | Experiment harness (`experiments/*.yaml`), collectors, summarizer |
-| [scripts/](scripts/) | `golden.sh`, `live_check.sh`, `fresh_clone_check.sh`, `make_bundle.sh`, `bundle_check.sh` |
-| [infra/](infra/) | Kafka topics, PostgreSQL schema, Grafana dashboard and data source, Dockerfiles |
-| [data/sample/](data/sample/) | Golden dataset (60,163 trades) with expected bars, alerts and a SHA-256 manifest |
-| [LICENSE](LICENSE) | MIT license |
-| [tools/](tools/) | The oracle and dataset generator (`gen_sample_dataset.py`), dashboard generator |
-| [results/](results/) | Summary, figures, machine record |
+`make demo-live` runs the pipeline on live Coinbase trades (needs internet access that allows
+WebSockets). It saves a capture, and `make demo-offline` replays that capture with no network. After a
+live run, `uv run python -m verify.verify --from-topic` checks the output against the topic's contents.
 
-## Milestones
+## Versions
 
-| | Milestone | Gate | Status |
-|---|---|---|---|
-| ✅ | **M0 Foundation** | G0: all containers healthy, topics exist, `make test` passes | Done Nov 6 |
-| ✅ | **M1 End-to-end bars** | G1: `make golden` passes from a clean `make reset` | Done Nov 6 |
-| ✅ | **M2 Output and measurement** | G2: every experiment has a working dry run | Done Nov 11 (T27 live run and T28 teammate check open) |
-| ✅ | **M3 Experiments** | G3: `results/summary.csv` and figures committed | Done Nov 12 |
-| 🟡 | **M4 Freeze** | G4: `v1.0` tag pushed | Fresh clone and demo rehearsal (with crashes) pass. Open: push the `v1.0` tag (a maintainer; see below), T40 on a second machine |
-
-## Status and open items
-
-These need a person or a different machine; everything else is done and tested. Closed on Nov 13: D1 (the alert's "price change" is the log return of the close, confirmed by the group) and D8 (MIT license).
-
-| Item | Why it is open | How to close it |
-|---|---|---|
-| T27 / S5: 10 minutes on live Coinbase trades | The development environment cannot open WebSockets; the adapter is tested against a protocol-faithful fake feed and offline from a capture | `make demo-live` for 10 minutes, then `uv run python -m verify.verify --from-topic` |
-| T34: capture a live session for the demo fallback | Same | `make demo-live` writes `runs/captures/coinbase-live.jsonl` |
-| T28 / T40: quickstart and fresh clone on a teammate's machine | Needs someone who did not write the code, and a second machine | `scripts/fresh_clone_check.sh`, then comment on the issue |
-| Tag `v1.0` (gate G4) | The development environment cannot push tags | `git fetch && git tag -a v1.0 -m "v1.0" origin/main && git push origin v1.0`, or GitHub, Releases, Draft a new release |
-
-Known limitations (also in the report, section 10, which explains what a single machine can and cannot
-show about throughput and fault tolerance): one machine, so no network partitions, no network cost
-between brokers and no multi-node Spark; synthetic data for every measurement; security features described, not measured; virtual time
-compression magnifies failover skew relative to the watermark (docs/decisions.md, 2026-11-12); the
-benchmark VM changed CPU between experiments, and results are only compared within one machine
-(results/MACHINE.md).
-
-## Submission bundle
-
-The course asks for the code and a running example as one archive. `make bundle` writes
-`dist/cs4411-group6-pipeline.zip` from the committed files (no `.git`, no run outputs, no secrets, no
-file over 5 MB). Unzipped, it works like a clone: the [quickstart](#quickstart) starts the demo and
-`make golden` verifies the whole pipeline. `scripts/bundle_check.sh` unzips it into an empty folder and
-runs those steps (`QUICK=1` skips the Docker part). `WITH_RAW=1 make bundle` also writes
-`dist/cs4411-group6-raw-results.zip` with every run's raw output (about 225 MB, git-ignored); unzip it
-into the project folder and `uv run python -m bench.summarize` regenerates every table and figure.
+Kafka 4.4.0, Spark 4.2.1 (PySpark), PostgreSQL 18.6, Grafana 13.3.0; Python 3.13 on the host. All pinned
+in `docker-compose.yml` and `uv.lock`.
 
 ## License
 
-[MIT](LICENSE), copyright 2026 the authors. Third-party images, packages and data feeds keep their own licenses and terms.
+MIT, see `LICENSE`.

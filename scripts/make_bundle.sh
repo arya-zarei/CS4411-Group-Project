@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Builds the submission zip: every file tracked in git at REF (default HEAD), nothing else.
+# Builds the submission zip: every file tracked in git at REF (default HEAD) except the Markdown files
+# other than README.md.
 # It has no .git folder, no .venv, no run outputs and no secrets (those are git-ignored), and runs
 # from the unzipped folder exactly like a clone (README quickstart).
 #
@@ -20,6 +21,10 @@ if [[ -n "$(git status --porcelain)" && "$REF" == "HEAD" ]]; then
   echo "warning: uncommitted changes are NOT in the zip (it contains the committed $REF)" >&2
 fi
 git archive --format=zip --prefix="$NAME/" -o "dist/$NAME.zip" "$REF"
+
+# The submission has one Markdown file, the README. Notes, plans and generated .md tables stay in the
+# repository only (the report, report/main.tex, carries what a reader needs).
+unzip -Z1 "dist/$NAME.zip" | grep -E '\.md$' | grep -v -x "$NAME/README.md" | xargs -d '\n' zip -q -d "dist/$NAME.zip"
 
 # Guards: the repo is public, so no handouts or rubrics; the project says no file over 5 MB.
 if unzip -Z1 "dist/$NAME.zip" | grep -i -E 'rubric|handout|\.local/|\.env$|\.pem$'; then

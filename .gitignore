@@ -35,3 +35,12 @@ kafka-data/
 
 # Submission zips (scripts/make_bundle.sh)
 dist/
+
+# LaTeX build files (report/)
+report/*.aux
+report/*.log
+report/*.out
+report/*.bbl
+report/*.blg
+report/*.toc
+report/main.pdf

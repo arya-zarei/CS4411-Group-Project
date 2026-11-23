@@ -16,7 +16,9 @@ step "unzip $ZIP into $DIR"
 unzip -q "$ZIP" -d "$DIR"
 cd "$DIR"/*/
 [[ ! -d .git ]] || { echo "the zip must not contain .git" >&2; exit 1; }
-for f in README.md LICENSE Makefile docker-compose.yml uv.lock data/sample/MANIFEST.json results/CONFIGURATION.md; do
+extra=$(find . -name '*.md' -not -path './.venv/*' -not -path './README.md' | head -3)
+[[ -z "$extra" ]] || { echo "the zip must hold no Markdown but README.md: $extra" >&2; exit 1; }
+for f in README.md LICENSE Makefile docker-compose.yml uv.lock data/sample/MANIFEST.json report/main.tex results/summary.csv; do
   [[ -f "$f" ]] || { echo "missing $f" >&2; exit 1; }
 done
 
