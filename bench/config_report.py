@@ -34,10 +34,12 @@ def resolve(value) -> str:
 
 
 def compose() -> dict:
+    """Read the services section of docker-compose.yml."""
     return yaml.safe_load((ROOT / "docker-compose.yml").read_text())["services"]
 
 
 def md_table(header: list[str], rows: list[list]) -> str:
+    """Render a Markdown table from a header and rows."""
     out = ["| " + " | ".join(header) + " |", "|" + "---|" * len(header)]
     out += ["| " + " | ".join(str(c) for c in r) + " |" for r in rows]
     return "\n".join(out)
@@ -58,6 +60,9 @@ def topic_settings() -> list[list]:
 
 
 def broker_section(svc: dict) -> str:
+    """The Kafka broker settings from the compose file (image and environment, without the per-node ids),
+    as a table.
+    """
     env = svc["kafka-1"]["environment"]
     shared = {
         k: resolve(v)
@@ -73,6 +78,9 @@ def broker_section(svc: dict) -> str:
 
 
 def spark_section(svc: dict) -> str:
+    """The Spark settings from the compose file: for each job its spark-submit options, environment and
+    container limits, with ${VAR:-default} replaced by the default.
+    """
     bars, pt = svc["spark-bars"], svc["spark-passthrough"]
     rows = []
     for name, s in (("bars job (`spark-bars`)", bars), ("pass-through job (`spark-passthrough`)", pt)):
@@ -94,10 +102,14 @@ def spark_section(svc: dict) -> str:
 
 
 def producer_section() -> str:
+    """The generator's producer settings, taken from the generator's own argument parser, for acks=all and
+    for acks=1, so the document shows what the code really uses.
+    """
     conf = cli.producer_conf(cli.parse_args(["--mode", "virtual"]))
     conf_acks1 = cli.producer_conf(cli.parse_args(["--mode", "virtual", "--acks", "1"]))
 
     def show(v):
+        """Format a setting value, writing booleans in lower case as Kafka does."""
         return str(v).lower() if isinstance(v, bool) else str(v)
 
     rows = [[f"`{k}`", f"`{show(v)}`", f"`{show(conf_acks1[k])}`"] for k, v in conf.items()]
@@ -108,15 +120,22 @@ def producer_section() -> str:
 
 
 def load(name: str) -> tuple[dict, list[dict]]:
+    """Read an experiment's YAML and return its shared parameters and its list of settings."""
     cfg = yaml.safe_load((ROOT / "bench" / "experiments" / f"{name}.yaml").read_text())
     return cfg.get("params", {}), cfg["settings"]
 
 
 def fmt(v) -> str:
+    """Format a number with thousands separators when it has five digits or more, and anything else as
+    text.
+    """
     return f"{v:,}" if isinstance(v, int) and not isinstance(v, bool) and abs(v) >= 10000 else str(v)
 
 
 def settings_table(columns: list[tuple[str, str]], settings: list[dict], defaults: dict) -> str:
+    """A table with one row per setting and the chosen columns. A value missing from the setting falls back
+    to the experiment's shared parameters, and lists such as input rates are joined with commas.
+    """
     rows = []
     for s in settings:
         row = [f"`{s['id']}`"]
@@ -128,6 +147,7 @@ def settings_table(columns: list[tuple[str, str]], settings: list[dict], default
 
 
 def experiment_sections() -> str:
+    """Write the description and table for each of the six experiments from their YAML parameters."""
     out = []
     p, s = load("e1a")
     out.append(
@@ -223,6 +243,9 @@ def experiment_sections() -> str:
 
 
 def render() -> str:
+    """Build the whole document text from the compose file, topic script, generator defaults and experiment
+    definitions.
+    """
     svc = compose()
     return (
         "\n\n".join(
@@ -255,6 +278,9 @@ def render() -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Write results/CONFIGURATION.md, or with --check compare it with a fresh render and exit 1 if it is
+    out of date.
+    """
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--check", action="store_true", help="exit 1 if results/CONFIGURATION.md is out of date")
     a = ap.parse_args(argv)

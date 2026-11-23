@@ -26,6 +26,10 @@ POLL_EVERY = 50
 
 class TradeProducer:
     def __init__(self, bootstrap: str, topic: str, conf: dict, ack_log: Path | None = None):
+        """Open a Kafka producer. With an ack log, it also opens the CSV that records the fate of every
+        trade (trade id, acked or not, partition, offset, error, time of the ack), which the Kafka-layer
+        verifier later compares with the topic.
+        """
         self.topic = topic
         self.conf = {"bootstrap.servers": bootstrap, **conf}
         self.producer = Producer(self.conf)
@@ -39,6 +43,9 @@ class TradeProducer:
 
     # delivery callbacks run inside poll()/flush() on this thread
     def _count(self, err: KafkaError | None, _msg) -> None:
+        """Delivery callback used when no ack log is kept. It only counts acknowledged and failed trades
+        and remembers the first error text.
+        """
         if err is None:
             self.acked += 1
         else:
@@ -46,6 +53,10 @@ class TradeProducer:
             self.first_error = self.first_error or str(err)
 
     def _log(self, trade_id: int, err: KafkaError | None, msg) -> None:
+        """Delivery callback used with an ack log. It counts the outcome as above, then queues one CSV row
+        with the partition and offset on success or the error name on failure, and writes the rows out
+        in batches so logging does not slow the producer.
+        """
         self._count(err, msg)
         now_ms = int(time.time() * 1000)
         if err is None:
@@ -56,11 +67,16 @@ class TradeProducer:
             self._flush_ack_rows()
 
     def _flush_ack_rows(self) -> None:
+        """Write the queued ack rows to the file and empty the queue."""
         if self._ack_file and self._ack_rows:
             self._ack_file.writelines(self._ack_rows)
             self._ack_rows.clear()
 
     def send(self, t: Trade) -> None:
+        """Queue one trade, keyed by symbol so a symbol always goes to the same partition. If librdkafka's
+        local queue is full it waits for deliveries and retries, so trades are never dropped on the
+        client side. Every POLL_EVERY trades it serves delivery callbacks.
+        """
         cb = partial(self._log, t.trade_id) if self._ack_file else self._count
         key = t.symbol.encode()
         value = kafka_value(t)

@@ -61,6 +61,9 @@ def virtual_params(
 
 
 def virtual_trades(params: dict) -> Iterator[Trade]:
+    """Yield the oracle's trades one by one. The oracle builds the whole dataset in memory, so this only
+    converts each row to a Trade; the data is the golden dataset when the defaults are used.
+    """
     trades, _, _ = oracle.make_trades(params)
     cols = [trades[c].to_numpy() for c in ("trade_id", "symbol", "event_time_ms", "price", "size")]
     for tid, sym, t, price, size in zip(*cols, strict=True):
@@ -99,6 +102,10 @@ class RealtimeModel:
     and throughput experiments (E1), where only timing matters, not a known answer."""
 
     def __init__(self, seed: int = 42, n_symbols: int = 100):
+        """Build the same symbol universe as the oracle (start prices, volatilities, rate skew). The random
+        generator has its own child seed, so realtime runs repeat for a given seed without reusing the
+        virtual-mode stream.
+        """
         uni, _, _ = oracle.make_universe(n_symbols, seed, 1.0)
         self.symbols = uni["symbol"].to_numpy()
         self.weights = (uni["rate_per_s"] / uni["rate_per_s"].sum()).to_numpy()
@@ -109,6 +116,11 @@ class RealtimeModel:
         self.next_id = 1
 
     def batch(self, n: int, rate: float) -> list[Trade]:
+        """Create n trades stamped with the current wall clock. Symbols are drawn by their share of the
+        total rate, and each trade moves its symbol's log price by a random step scaled to the symbol's
+        one-minute volatility and its expected gap between trades. Sizes are log-normal and clipped to 1
+        to 10,000.
+        """
         now_ms = int(time.time() * 1000)
         idx = self.rng.choice(len(self.symbols), size=n, p=self.weights)
         dt_s = 1.0 / np.maximum(rate * self.weights[idx], 1e-9)  # expected gap between this symbol's trades

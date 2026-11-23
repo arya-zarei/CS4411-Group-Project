@@ -50,10 +50,15 @@ TABLES = {
 
 
 def ms_to_ts(ms):
+    """Convert epoch milliseconds to a timezone-aware UTC datetime for PostgreSQL."""
     return datetime.fromtimestamp(ms / 1000.0, tz=timezone.utc)
 
 
 def _insert_sql(table, cols, mode):
+    """Build an INSERT statement for the given columns. In upsert mode it adds ON CONFLICT (symbol,
+    window_start) DO UPDATE for every other column, so writing the same bar twice leaves one identical
+    row, which is what makes a replayed batch harmless. In insert mode a replay adds duplicates.
+    """
     names = ", ".join(cols)
     params = ", ".join(["%s"] * len(cols))
     sql = f"INSERT INTO {table} ({names}) VALUES ({params})"

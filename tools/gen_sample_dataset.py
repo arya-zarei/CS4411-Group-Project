@@ -51,6 +51,9 @@ DEFAULTS = dict(
 
 
 def sha256_bytes(b: bytes) -> str:
+    """Hex SHA-256 of some bytes. The manifest stores these hashes so a regenerated dataset can be compared
+    exactly.
+    """
     return hashlib.sha256(b).hexdigest()
 
 
@@ -58,6 +61,12 @@ def sha256_bytes(b: bytes) -> str:
 # Trade generation
 # ----------------------------------------------------------------------------
 def make_universe(n_symbols: int, seed: int, mean_rate: float):
+    """Create the symbols and their per-symbol settings from the seed: a trade rate that follows rank to
+    the power minus one half (a few busy symbols, many quiet ones, scaled to the requested mean), a
+    start price around 60, and a one-minute volatility. It also returns the child seeds that drive each
+    symbol's trades and the random stream for shocks, so changing one symbol's data never shifts
+    another's.
+    """
     ss = np.random.SeedSequence(seed)
     children = ss.spawn(n_symbols + 2)
     rng_u = np.random.default_rng(children[0])
@@ -74,6 +83,10 @@ def make_universe(n_symbols: int, seed: int, mean_rate: float):
 
 
 def make_shocks(uni, rng, n_shocks, start_s, end_s):
+    """Pick which symbols get a price shock, when (sorted random times in the shock period), and by how
+    much (a permanent log-price jump of 1.5% to 3%, up or down). One shock per symbol at most. The list
+    is saved so the verifier can check each shock was detected.
+    """
     idx = rng.choice(len(uni), size=n_shocks, replace=False)
     t_ms = np.sort(rng.integers(start_s * 1000, end_s * 1000, n_shocks))
     sign = rng.choice([-1.0, 1.0], size=n_shocks)
@@ -84,6 +97,12 @@ def make_shocks(uni, rng, n_shocks, start_s, end_s):
 
 
 def make_trades(p: dict) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Generate the whole trade table. For every symbol, the number of trades is Poisson, their times are
+    uniform and sorted, and the log price is a random walk whose step grows with the square root of the
+    time since the last trade, plus any shock jumps after their time. Sizes are log-normal, clipped to 1
+    to 10,000. All symbols are merged by time and numbered, so trade ids follow the same order Kafka
+    will see.
+    """
     uni, children, rng_shock = make_universe(p["n_symbols"], p["seed"], p["mean_rate_per_symbol"])
     total_ms = p["minutes"] * 60_000
     shocks = make_shocks(uni, rng_shock, p["n_shocks"], p["shock_start_s"], p["shock_end_s"])
@@ -111,6 +130,12 @@ def make_trades(p: dict) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
 # Reference bars and alerts (the oracle for Spark + verifier)
 # ----------------------------------------------------------------------------
 def compute_bars(trades: pd.DataFrame) -> pd.DataFrame:
+    """Build the one-minute bars from a trade table. Trades are sorted by event time and then trade id, so
+    open and close do not depend on arrival order. Each trade falls in the window that starts at its
+    time rounded down to the minute. Per symbol and window the bar has the first and last price, the
+    highest and lowest price, the total size, the trade count, and the VWAP (sum of price times size,
+    divided by total size).
+    """
     t = trades.sort_values(["event_time_ms", "trade_id"], kind="stable").copy()
     t["window_start_ms"] = (t["event_time_ms"] // WINDOW_MS) * WINDOW_MS
     t["notional"] = t["price"] * t["size"]
@@ -161,17 +186,26 @@ def shock_detection(shocks: pd.DataFrame, bars: pd.DataFrame, alerts: pd.DataFra
 # I/O
 # ----------------------------------------------------------------------------
 def csv_bytes(df: pd.DataFrame, **kw) -> bytes:
+    """Write a table to CSV in memory with Unix line endings, so the bytes (and their hash) are the same on
+    every platform.
+    """
     buf = io.StringIO()
     df.to_csv(buf, index=False, lineterminator="\n", **kw)
     return buf.getvalue().encode()
 
 
 def write_gz(path: Path, raw: bytes) -> None:
+    """Write bytes as a gzip file with the timestamp fixed at zero, so the compressed file is identical
+    every time it is generated.
+    """
     with open(path, "wb") as f, gzip.GzipFile(fileobj=f, mode="wb", mtime=0, compresslevel=9) as gz:
         gz.write(raw)
 
 
 def build(p: dict):
+    """Compute everything the dataset contains (trades, expected bars, expected alerts, symbols and shocks)
+    as the exact bytes of each file, plus the tables for the checks.
+    """
     trades, uni, shocks = make_trades(p)
     bars = compute_bars(trades)
     alerts = compute_alerts(bars)
@@ -186,6 +220,10 @@ def build(p: dict):
 
 
 def main() -> int:
+    """Command-line entry point. With --check it regenerates the dataset in memory and compares its hashes
+    with MANIFEST.json, printing MATCH or MISMATCH. Otherwise it writes the files, the shock detection
+    result and a new manifest.
+    """
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--out", type=Path, default=Path("data/sample"))
     ap.add_argument("--check", action="store_true", help="regenerate in memory and compare with MANIFEST.json")

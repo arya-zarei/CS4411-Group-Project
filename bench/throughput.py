@@ -50,6 +50,9 @@ class LagSampler:
     """Calls ``lag_fn()`` about once a second in a background thread."""
 
     def __init__(self, lag_fn: Callable[[], float], interval_s: float = 1.0):
+        """Keep the function that reports the current lag and the sampling interval. Nothing is sampled
+        until start is called.
+        """
         self.lag_fn = lag_fn
         self.interval_s = interval_s
         self.samples: list[tuple[float, float]] = []
@@ -59,11 +62,15 @@ class LagSampler:
         self._thread = threading.Thread(target=self._run, daemon=True)
 
     def start(self) -> LagSampler:
+        """Reset the clock to zero and start the sampling thread."""
         self._t0 = time.monotonic()
         self._thread.start()
         return self
 
     def _run(self) -> None:
+        """Sampling thread. Once per interval it stores (seconds since start, lag). A failed read is
+        counted, not raised, because one missing sample does not change the lag trend.
+        """
         while not self._stop.is_set():
             try:
                 self.samples.append((time.monotonic() - self._t0, float(self.lag_fn())))
@@ -72,6 +79,7 @@ class LagSampler:
             self._stop.wait(self.interval_s)
 
     def stop(self) -> list[tuple[float, float]]:
+        """Stop sampling and return all samples as (seconds, lag) pairs."""
         self._stop.set()
         self._thread.join(timeout=10)
         return self.samples

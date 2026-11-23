@@ -27,6 +27,7 @@ REPLICATION = {"trades": 3, "passthrough_out": 3, "perf_test": 1}
 
 
 def admin(bootstrap: str = BOOTSTRAP) -> AdminClient:
+    """A Kafka admin client for the given bootstrap servers."""
     return AdminClient({"bootstrap.servers": bootstrap})
 
 
@@ -62,6 +63,10 @@ def recreate_topics(partitions: dict[str, int], bootstrap: str = BOOTSTRAP, time
 
 
 def wait_for_leaders(names: list[str], bootstrap: str = BOOTSTRAP, timeout_s: float = 60) -> None:
+    """Block until every partition of the named topics has an elected leader, polling twice a second. After
+    a topic is recreated or a broker is killed, this stops the harness from starting too early. It
+    raises TimeoutError if the leaders do not appear in time.
+    """
     a = admin(bootstrap)
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
@@ -76,6 +81,7 @@ def wait_for_leaders(names: list[str], bootstrap: str = BOOTSTRAP, timeout_s: fl
 
 
 def partition_count(topic: str, bootstrap: str = BOOTSTRAP) -> int:
+    """How many partitions a topic has."""
     return len(admin(bootstrap).list_topics(topic, timeout=10).topics[topic].partitions)
 
 
@@ -85,6 +91,9 @@ def leader_of(topic: str, partition: int = 0, bootstrap: str = BOOTSTRAP) -> int
 
 
 def end_offsets(topic: str, bootstrap: str = BOOTSTRAP) -> dict[int, int]:
+    """The next offset to be written in each partition of a topic, as {partition: offset}. Read through a
+    throwaway consumer that never commits offsets.
+    """
     c = Consumer({"bootstrap.servers": bootstrap, "group.id": "bench-offsets", "enable.auto.commit": False})
     try:
         n = len(c.list_topics(topic, timeout=10).topics[topic].partitions)
@@ -98,4 +107,7 @@ def end_offsets(topic: str, bootstrap: str = BOOTSTRAP) -> dict[int, int]:
 
 
 def total_end_offset(topic: str, bootstrap: str = BOOTSTRAP) -> int:
+    """The sum of the end offsets over all partitions: the number of records ever written to the topic when
+    it starts empty.
+    """
     return sum(end_offsets(topic, bootstrap).values())

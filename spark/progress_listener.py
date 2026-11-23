@@ -28,6 +28,10 @@ def _offsets(value):
 
 
 def lag_total(end, latest):
+    """Records Spark has not read yet. For each partition it subtracts the offset the batch ended at from
+    the latest offset Kafka has, never below zero, and adds them up. A lag that keeps growing means
+    Spark is not keeping up.
+    """
     total = 0
     for topic, parts in latest.items():
         for part, off in parts.items():
@@ -37,19 +41,26 @@ def lag_total(end, latest):
 
 class ProgressToPostgres(StreamingQueryListener):
     def __init__(self, dsn):
+        """Keep the database address. The connection is created on first use."""
         super().__init__()
         self.dsn = dsn
         self.conn = None
 
     def _connection(self):
+        """Return an open autocommit connection, reconnecting if it was closed or never opened."""
         if self.conn is None or self.conn.closed:
             self.conn = psycopg.connect(self.dsn, autocommit=True)
         return self.conn
 
     def onQueryStarted(self, event):
+        """Nothing to do when the query starts. The listener interface requires the method."""
         pass
 
     def onQueryProgress(self, event):
+        """Store one row per finished batch in query_progress: batch id, rows read, input and processing
+        rates, trigger time, source lag and offsets. A database error is printed and ignored, because
+        monitoring must never stop the query.
+        """
         p = event.progress
         src = p.sources[0] if p.sources else None
         end = _offsets(src.endOffset) if src else {}
@@ -73,7 +84,9 @@ class ProgressToPostgres(StreamingQueryListener):
             self.conn = None
 
     def onQueryIdle(self, event):
+        """Nothing to do when a trigger finds no new data. The listener interface requires the method."""
         pass
 
     def onQueryTerminated(self, event):
+        """Nothing to do when the query ends. The listener interface requires the method."""
         pass

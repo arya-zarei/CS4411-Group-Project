@@ -51,6 +51,9 @@ class PassthroughCollector:
     """Consumes `passthrough_out` from its current end and records one latency per record."""
 
     def __init__(self, topic: str = "passthrough_out", bootstrap: str = BOOTSTRAP):
+        """Prepare a consumer for the pass-through output topic with its own group id and a short fetch
+        wait, so records are seen soon after they arrive. It does not start reading yet.
+        """
         self.topic = topic
         self.consumer = Consumer(
             {
@@ -68,6 +71,9 @@ class PassthroughCollector:
         self._thread = threading.Thread(target=self._run, daemon=True)
 
     def start(self) -> PassthroughCollector:
+        """Assign every partition at its current end, so only records written from now on are counted, and
+        start the reader thread.
+        """
         md = self.consumer.list_topics(self.topic, timeout=10).topics[self.topic]
         parts = []
         for p in md.partitions:
@@ -78,6 +84,11 @@ class PassthroughCollector:
         return self
 
     def _run(self) -> None:
+        """Reader thread. For every record it takes Kafka's append time (set when the broker wrote it)
+        minus the trade's creation time carried in the value, and stores that latency with the creation
+        time so a warm-up period can be dropped later. Records that do not use LogAppendTime are counted
+        and skipped, because their timestamps would be wrong.
+        """
         while not self._stop.is_set():
             for msg in self.consumer.consume(10_000, timeout=0.2):
                 if msg.error():
@@ -92,6 +103,9 @@ class PassthroughCollector:
                 self.records += 1
 
     def stop(self, drain_s: float = 3.0) -> dict:
+        """Wait a few seconds for the last records to arrive, stop the thread, close the consumer, and
+        return the latency summary (median, p95, p99 and counts).
+        """
         time.sleep(drain_s)
         self._stop.set()
         self._thread.join(timeout=10)

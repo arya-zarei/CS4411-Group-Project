@@ -14,6 +14,10 @@ PROFILES = ["--profile", "smoke", "--profile", "bench", "--profile", "live"]
 
 
 def compose(*args: str, env: dict | None = None, check: bool = True, capture: bool = True) -> str:
+    """Run docker compose in the project folder with extra environment variables and return its output. A
+    non-zero exit raises an error that includes the last 2000 characters of output, so failures are
+    visible in the harness log.
+    """
     cmd = ["docker", "compose", *args]
     r = subprocess.run(cmd, cwd=ROOT, env={**os.environ, **(env or {})}, text=True, capture_output=capture)
     if check and r.returncode != 0:
@@ -23,6 +27,7 @@ def compose(*args: str, env: dict | None = None, check: bool = True, capture: bo
 
 
 def docker(*args: str, check: bool = True) -> str:
+    """Run a docker command and return its output. With check=False a failure is not raised."""
     r = subprocess.run(["docker", *args], text=True, capture_output=True)
     if check and r.returncode != 0:
         raise RuntimeError(f"docker {' '.join(args)} failed: {r.stderr.strip()}")
@@ -40,6 +45,7 @@ def reset() -> None:
 
 
 def up(*services: str, env: dict | None = None, wait: bool = True) -> None:
+    """Start the named services without their dependencies, and by default wait until they are healthy."""
     args = [*PROFILES, "up", "-d", "--no-deps"]
     if wait:
         args.append("--wait")
@@ -54,6 +60,7 @@ def start_infra(env: dict | None = None) -> None:
 
 
 def stop(*services: str) -> None:
+    """Stop and remove the named services' containers. Volumes stay, so Spark's checkpoint survives."""
     compose(*PROFILES, "rm", "-sf", *services)
 
 
@@ -63,11 +70,13 @@ def kill(container: str) -> None:
 
 
 def is_running(container: str) -> bool:
+    """True if the container exists and is running."""
     out = docker("inspect", "-f", "{{.State.Running}}", container, check=False).strip()
     return out == "true"
 
 
 def exit_code(container: str) -> int | None:
+    """The container's exit code, or None if it does not exist or has no code yet."""
     out = docker("inspect", "-f", "{{.State.ExitCode}}", container, check=False).strip()
     return int(out) if out.lstrip("-").isdigit() else None
 
@@ -78,11 +87,15 @@ def wipe_volume(volume: str) -> None:
 
 
 def logs(container: str) -> str:
+    """Everything the container has written to stdout and stderr."""
     r = subprocess.run(["docker", "logs", container], text=True, capture_output=True)
     return r.stdout + r.stderr
 
 
 def wait_for_log(container: str, pattern: str, timeout_s: float = 120, count: int = 1) -> None:
+    """Wait until a log line has appeared the given number of times. It raises at once if the container
+    exits first, with the end of its log, and raises TimeoutError if the text never shows up.
+    """
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
         if logs(container).count(pattern) >= count:

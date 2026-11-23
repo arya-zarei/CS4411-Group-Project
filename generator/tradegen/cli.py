@@ -30,6 +30,10 @@ DEFAULT_BOOTSTRAP = os.environ.get(
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """Read the command line and check combinations argparse cannot. Replay needs a file, a per-trade log
+    needs a run id, and idempotence defaults to on only with acks=all because Kafka rejects it with
+    acks=0 or 1. 'max' speed becomes None, and realtime defaults to 60 seconds.
+    """
     ap = argparse.ArgumentParser(
         prog="tradegen", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
@@ -108,6 +112,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def producer_conf(a: argparse.Namespace) -> dict:
+    """The librdkafka producer settings for this run. They are also written to generator_config.json, so
+    every run records exactly how it produced.
+    """
     return {
         "acks": a.acks,
         "enable.idempotence": a.idempotence == "true",
@@ -119,6 +126,9 @@ def producer_conf(a: argparse.Namespace) -> dict:
 
 
 def git_commit() -> str | None:
+    """The current commit, recorded in each run's config. It returns None when git is missing or this is an
+    unpacked zip with no repository.
+    """
     try:
         return (
             subprocess.run(
@@ -144,6 +154,10 @@ def paced(trades, speed: float | None):
 
 
 def realtime_source(a: argparse.Namespace):
+    """Yield trades at a steady rate by wall clock. Each pass it works out how many trades should have been
+    sent by now (rate times elapsed time) and emits the shortfall, so a slow producer catches up instead
+    of drifting below the target rate.
+    """
     from .model import RealtimeModel
 
     model = RealtimeModel(seed=a.seed, n_symbols=a.symbols)
@@ -172,6 +186,10 @@ def live_source(a: argparse.Namespace):
     done = object()
 
     def worker() -> None:
+        """Feed the queue from Coinbase in a background thread. If the feed is silent or --offline is set,
+        it replays the newest capture so a demo never stops. Whatever happens, it puts the done marker
+        on the queue so the consumer can finish.
+        """
         src = cb.LiveSource(q.put, a.save)
         stop_at = time.monotonic() + (a.duration if a.duration else 1e12)
         try:
@@ -205,6 +223,10 @@ def live_source(a: argparse.Namespace):
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run one generator session. Pick the trade source from --mode, write the run's config, then either
+    dump a CSV or send every trade to Kafka and finish with the closing flush trade. It prints a
+    one-line JSON summary and returns 0 only if every trade was acknowledged, otherwise 2.
+    """
     a = parse_args(argv)
     if a.mode == "virtual":
         params = virtual_params(a.seed, a.minutes, a.symbols, a.mean_rate_per_symbol, a.shock_rate_per_min)

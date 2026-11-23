@@ -56,6 +56,12 @@ TRADE_SCHEMA = StructType(
 
 
 def build_bars(spark):
+    """Build the streaming query that turns trades into bars. It reads the Kafka topic, parses the JSON
+    with a fixed schema, drops rows without a symbol or time, sets a watermark on event time, and groups
+    by symbol and one-minute window. Open and close take the price with the earliest or latest (time,
+    trade id), so ties cannot change them; VWAP is notional divided by volume, with try_divide so an
+    empty volume gives null instead of an error.
+    """
     reader = (
         spark.readStream.format("kafka")
         .option("kafka.bootstrap.servers", BOOTSTRAP)
@@ -107,11 +113,20 @@ class BatchWriter:
     """foreachBatch target. Keeps one database connection for the life of the driver."""
 
     def __init__(self, dsn, mode):
+        """Keep the connection settings. The PostgreSQL connection is opened lazily on the first batch and
+        reused after that.
+        """
         self.dsn = dsn
         self.mode = mode
         self.conn = None
 
     def __call__(self, df, batch_id):
+        """Spark calls this once per micro-batch. It collects the finished bars (at most about 100 per
+        minute), drops the reserved flush trade's row, and writes bars and alerts in one database
+        transaction. A failed write closes the connection and re-raises, so Spark fails the batch and
+        replays it after the restart. When the fault hook is set, the process crashes right after the
+        commit for Experiment 4.
+        """
         rows = df.where(F.col("symbol") != FLUSH_SYMBOL).collect()  # at most ~100 bars per closed minute
         bars = [
             {
@@ -162,6 +177,10 @@ def crash_after_commit(batch_id):
 
 
 def main():
+    """Start the bars job. It checks the sink mode, registers the progress listener, then runs the query in
+    append mode (each bar is written once, when the watermark says the minute is final) with a
+    checkpoint and the configured trigger, and waits until the query ends.
+    """
     if SINK_MODE not in ("upsert", "insert"):
         sys.exit(f"SINK_MODE must be upsert or insert, not {SINK_MODE!r}")
     spark = SparkSession.builder.appName("bars-job").getOrCreate()

@@ -32,6 +32,10 @@ CHECKPOINT_DIR = os.environ.get("CHECKPOINT_DIR", f"/checkpoints/passthrough-{MO
 
 
 def main():
+    """Start the pass-through job: copy each record's key and value from the input topic to the output
+    topic with no parsing, so any latency comes from Spark and Kafka and not from query logic.
+    Continuous mode uses a continuous trigger, microbatch uses a processing-time trigger.
+    """
     if MODE not in ("microbatch", "continuous"):
         sys.exit(f"PT_MODE must be microbatch or continuous, not {MODE!r}")
     spark = SparkSession.builder.appName(f"passthrough-{MODE}").getOrCreate()

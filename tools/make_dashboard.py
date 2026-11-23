@@ -17,6 +17,9 @@ DS = {"type": "grafana-postgresql-datasource", "uid": "pg"}
 
 
 def target(sql: str, ref: str = "A", fmt: str = "table") -> dict:
+    """One Grafana query: a raw SQL string against the PostgreSQL data source, returned as a table or as
+    time series.
+    """
     return {
         "refId": ref,
         "datasource": DS,
@@ -31,6 +34,9 @@ _ids = iter(range(1, 100))
 
 
 def panel(kind: str, title: str, x: int, y: int, w: int, h: int, targets: list, **extra) -> dict:
+    """A Grafana panel of any type at a grid position (x, y, width, height). Each panel gets the next id,
+    and extra keyword arguments carry the type-specific options.
+    """
     p = {
         "id": next(_ids),
         "type": kind,
@@ -44,6 +50,9 @@ def panel(kind: str, title: str, x: int, y: int, w: int, h: int, targets: list, 
 
 
 def stat(title, sql, x, y, w=4, unit="none", decimals=0, description="", text=False):
+    """A single-number panel showing the last value of the query. Text mode shows non-numeric values too,
+    because a stat panel hides them by default.
+    """
     fields = "/.*/" if text else ""  # a stat panel shows only numeric fields unless told otherwise
     return panel(
         "stat", title, x, y, w, 4, [target(sql)], description=description,
@@ -56,6 +65,7 @@ def stat(title, sql, x, y, w=4, unit="none", decimals=0, description="", text=Fa
 
 
 def timeseries(title, sql, x, y, w, h, unit="none", description=""):
+    """A line chart panel with thin lines, a light fill, no point markers, and a shared tooltip."""
     return panel(
         "timeseries", title, x, y, w, h, [target(sql)], description=description,
         fieldConfig={"defaults": {"unit": unit, "custom": {"lineWidth": 1, "fillOpacity": 10, "showPoints": "never"}},
@@ -66,6 +76,7 @@ def timeseries(title, sql, x, y, w, h, unit="none", description=""):
 
 
 def table(title, sql, x, y, w, h, description="", decimals_by_name=None, widths=None):
+    """A table panel. Per-column decimals and widths are added as overrides keyed by column name."""
     overrides = [
         {"matcher": {"id": "byName", "options": name}, "properties": [{"id": "decimals", "value": d}]}
         for name, d in (decimals_by_name or {}).items()

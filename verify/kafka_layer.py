@@ -146,6 +146,10 @@ def compare(acks: pd.DataFrame, topic_ids) -> dict:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Command-line entry point for the Kafka-layer check. It reads the producer's ack log and every record
+    in the topic, compares them (acknowledged trades must be in the topic exactly once), prints the
+    result and the longest write stall, and exits 0 on PASS.
+    """
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--acks", type=Path, required=True, help="ack log written by tradegen --log-trades")
     ap.add_argument("--topic", default="trades")

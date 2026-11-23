@@ -26,6 +26,10 @@ BLUE, ORANGE, AQUA = "#2a78d6", "#eb6834", "#1baf7a"
 
 # --- loading ---------------------------------------------------------------------------------------
 def load(raw: Path) -> dict[str, dict[str, list[dict]]]:
+    """Read every finished run (each result.json) under the raw folder, grouped as experiment, then
+    setting, then a list of runs ordered by repeat number. Runs that failed have no result.json and are
+    left out.
+    """
     out: dict = defaultdict(lambda: defaultdict(list))
     for f in sorted(raw.glob("*/*/rep*/result.json")):
         r = json.loads(f.read_text())
@@ -37,14 +41,19 @@ def load(raw: Path) -> dict[str, dict[str, list[dict]]]:
 
 
 def num(v):
+    """Convert a value to float, passing None through."""
     return None if v is None else float(v)
 
 
 class Rows:
     def __init__(self):
+        """Start with no rows."""
         self.rows: list[dict] = []
 
     def add(self, exp, setting, metric, unit, values, rate=None):
+        """Add one summary row: the median, minimum and maximum of the runs' values, and the list of
+        values. Missing values are skipped, and if none are left no row is added.
+        """
         vals = [num(v) for v in values if v is not None]
         if not vals:
             return
@@ -64,6 +73,9 @@ class Rows:
         )
 
     def get(self, exp, setting, metric, rate=None):
+        """Find the row for an experiment, setting and metric, optionally at one input rate. Returns None
+        if there is no such row.
+        """
         for r in self.rows:
             if (r["experiment"], r["setting"], r["metric"]) == (exp, setting, metric) and (
                 rate is None or r["rate"] == int(rate)
@@ -73,6 +85,9 @@ class Rows:
 
 
 def steps_by_rate(runs: list[dict]) -> dict[float, list[dict]]:
+    """Regroup the steps of several runs by input rate, so the three runs' results at 30,000 records/s sit
+    together.
+    """
     by = defaultdict(list)
     for r in runs:
         for s in r.get("steps", []):
@@ -81,6 +96,11 @@ def steps_by_rate(runs: list[dict]) -> dict[float, list[dict]]:
 
 
 def summarize(data) -> Rows:
+    """Turn the runs into summary rows. For each experiment it picks the metrics that answer its question,
+    such as throughput for E1a, sustained rate and latency percentiles per rate for E1b and E1c, lost
+    trades and write stall for E2, recovery times for E3 and duplicate rows or latency for E4. Each
+    metric is reduced to a median, minimum and maximum over the runs.
+    """
     t = Rows()
     for s, runs in data.get("e1a", {}).items():
         t.add("e1a", s, "throughput", "records/s", [r["records_per_s"] for r in runs])
@@ -189,6 +209,9 @@ def summarize(data) -> Rows:
 
 # --- figures ---------------------------------------------------------------------------------------
 def style(ax, title, ylabel, xlabel=None):
+    """Apply the figure style: light surface, left-aligned title, muted axis text, horizontal grid lines
+    only and no frame except the bottom line.
+    """
     ax.set_facecolor(SURFACE)
     ax.set_title(title, loc="left", fontsize=11, color=INK, pad=10)
     ax.set_ylabel(ylabel, color=INK2, fontsize=9)
@@ -203,6 +226,9 @@ def style(ax, title, ylabel, xlabel=None):
 
 
 def new_fig(n=1, width=7.0, height=3.6):
+    """Create a figure with n side-by-side panels, using the non-interactive Agg backend so it works on a
+    server with no display.
+    """
     import matplotlib
 
     matplotlib.use("Agg")
@@ -213,6 +239,9 @@ def new_fig(n=1, width=7.0, height=3.6):
 
 
 def lower_bound(t, exp, setting) -> bool:
+    """True if every run of the setting ended without finding a failing rate. The sustained throughput is
+    then only a lower bound, shown with a 'greater or equal' sign.
+    """
     r = t.get(exp, setting, "sustained_is_lower_bound") if setting else None
     return bool(r) and r["min"] == 1.0
 
@@ -257,12 +286,16 @@ def thousands_x_axis(ax):
 
 
 def save(fig, path: Path, note: str):
+    """Add the footnote, fit the layout around it, and write the PNG at 200 dpi."""
     fig.text(0.01, 0.01, note, fontsize=7, color=INK2)
     fig.tight_layout(rect=(0, 0.04, 1, 1))
     fig.savefig(path, dpi=200, facecolor=SURFACE)
 
 
 def bar_latency_figure(t, panels, path: Path) -> list[str]:
+    """Draw the E1c latency figure: for each panel and each setting, three bars for p50, p95 and p99 at one
+    input rate. It returns the file name, or nothing if no panel has data.
+    """
     if panels:
         plt, fig, axes = new_fig(len(panels), width=8.5)
         for ax, (title, settings, label, common) in zip(axes, panels, strict=True):
@@ -289,6 +322,10 @@ def bar_latency_figure(t, panels, path: Path) -> list[str]:
 
 
 def figures(t: Rows, data, out: Path) -> list[str]:
+    """Draw every result figure that has data (E1a, E1b, E1c throughput and latency, E2, E3 and E4) and
+    return the file names. An experiment with no runs yet is skipped, so a partial set of results still
+    gives a partial set of figures.
+    """
     made = []
     note = "Median of 3 runs; whisker = min to max; dots = individual runs. Full numbers: results/summary.csv"
 
@@ -487,6 +524,9 @@ TITLES = {
 
 
 def markdown(t: Rows, figs: list[str], raw: Path) -> str:
+    """Write the results as Markdown: one table per experiment with the median and the range of each
+    metric, followed by the figures.
+    """
     lines = [
         "# Results",
         "",
@@ -537,6 +577,7 @@ def machine_md(raw: Path) -> str:
     packages = {p["name"]: p["version"] for p in tomllib.loads((ROOT / "uv.lock").read_text())["package"]}
 
     def locked(pkg):
+        """The locked version of a package, or '?' if it is not in the lock file."""
         return packages.get(pkg, "?")
 
     lines = ["# Benchmark machine and versions", "",
@@ -575,6 +616,9 @@ def machine_md(raw: Path) -> str:
 
 
 def main(argv=None) -> int:
+    """Command-line entry point. It loads the raw runs and writes summary.csv, the figures, RESULTS.md and
+    MACHINE.md into the results folder.
+    """
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--raw", type=Path, default=ROOT / "results" / "raw")
     ap.add_argument("--out", type=Path, default=ROOT / "results")

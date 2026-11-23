@@ -45,19 +45,27 @@ GOLDEN = "data/sample/trades.csv.gz"
 
 # --- small helpers --------------------------------------------------------------------------------
 def now_ms() -> int:
+    """The current wall-clock time in epoch milliseconds, the unit used in the database and the logs."""
     return int(time.time() * 1000)
 
 
 def pg():
+    """Open an autocommit connection to the benchmark PostgreSQL."""
     return psycopg.connect(PG_DSN, autocommit=True)
 
 
 def git_commit() -> str | None:
+    """The commit being run, stored in each run's config.json so results can be traced to code. None if git
+    is unavailable.
+    """
     r = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True)
     return r.stdout.strip() or None
 
 
 def py_env() -> dict:
+    """The environment for child Python processes: the current one plus PYTHONPATH pointing at the
+    repository and the generator package.
+    """
     return {**os.environ, "PYTHONPATH": f"{ROOT}:{ROOT / 'generator'}"}
 
 
@@ -70,6 +78,9 @@ def tradegen(args: list[str], out: Path, background: bool = False):
 
 
 def wait_tradegen(p, out: Path, timeout_s: float = 3600) -> dict:
+    """Wait for a generator process to finish and return its JSON summary. If it wrote no summary it
+    failed, so the error includes the end of its log.
+    """
     p.wait(timeout=timeout_s)
     summary = out / "gen" / "generator_summary.json"
     if not summary.exists():
@@ -80,6 +91,9 @@ def wait_tradegen(p, out: Path, timeout_s: float = 3600) -> dict:
 
 
 def run_module(module: str, *args: str) -> tuple[int, str]:
+    """Run a Python module in the repository as a child process and return its exit code and combined
+    output.
+    """
     r = subprocess.run(
         [sys.executable, "-m", module, *args], cwd=ROOT, env=py_env(), capture_output=True, text=True
     )
@@ -108,6 +122,9 @@ def verify_bars(out: Path, name: str, *args: str) -> dict:
 
 
 def verify_kafka(out: Path) -> dict:
+    """Run the Kafka-layer verifier on a run's ack log and return the fields worth keeping (acked, lost,
+    duplicated, write stall). It raises if the verifier produced no report, which means it crashed.
+    """
     report = out / "verify_kafka.json"
     code, text = run_module(
         "verify.kafka_layer", "--acks", str(out / "gen" / "acks.csv"), "--report", str(report)
@@ -135,6 +152,9 @@ def dump_virtual(params: dict, path: Path) -> None:
 
 
 def virtual_args(p: dict) -> list[str]:
+    """Generator arguments for virtual mode from an experiment's parameters: seed (default 42), virtual
+    minutes and mean rate per symbol.
+    """
     return [
         "--mode", "virtual", "--seed", str(p.get("seed", 42)), "--minutes", str(p["minutes"]),
         "--mean-rate-per-symbol", str(p.get("mean_rate_per_symbol", 0.25)),
@@ -150,6 +170,10 @@ def fresh_stack(partitions: int = 6) -> None:
 
 
 def start_spark(service: str, env: dict, checkpoint_volume: str) -> None:
+    """Start a Spark job from a clean state. It stops the service, wipes its checkpoint volume, starts it
+    with the given environment, and waits until the job logs that it started. A wiped checkpoint matters
+    because a checkpoint from an old topic would make Spark fail on data loss.
+    """
     stack.stop(service)
     stack.wipe_volume(checkpoint_volume)
     stack.up(service, env=env, wait=True)
@@ -158,6 +182,9 @@ def start_spark(service: str, env: dict, checkpoint_volume: str) -> None:
 
 
 def progress(conn, since_ms: int = 0) -> list[tuple]:
+    """Read the Spark progress rows (batch id, input rows, batch duration, processing rate) written since a
+    time.
+    """
     with conn.cursor() as cur:
         cur.execute(
             "SELECT extract(epoch FROM ts) * 1000, batch_id, num_input_rows, batch_duration_ms, "
@@ -171,6 +198,9 @@ def bars_lag_fn(conn):
     """Kafka end offsets of `trades` minus the offsets of Spark's latest completed batch."""
 
     def lag() -> float:
+        """Records Spark has not processed yet: Kafka's end offsets for the topic minus the offsets in
+        Spark's latest progress row.
+        """
         with conn.cursor() as cur:
             cur.execute("SELECT end_offsets FROM query_progress ORDER BY id DESC LIMIT 1")
             row = cur.fetchone()
@@ -186,10 +216,16 @@ def passthrough_lag() -> float:
 
 
 def generator_limited(summary: dict, rate: float) -> bool:
+    """True if the generator managed less than 95% of the requested rate. Such a step says more about the
+    generator than about Spark, so the result is marked.
+    """
     return summary.get("achieved_rate_per_s", 0) < 0.95 * rate
 
 
 def realtime_args(rate: float, duration: float) -> list[str]:
+    """Generator arguments for a realtime run at a rate for some seconds, without the closing flush trade
+    (the run is measured, not verified).
+    """
     return ["--mode", "realtime", "--rate", str(rate), "--duration", str(duration), "--no-flush-trade"]
 
 
@@ -202,6 +238,10 @@ PERF_TEST_LINE = re.compile(
 
 # --- E1a: producer batching (reproduction a, Kreps et al. Figure 4) ------------------------------
 def run_e1a(setting: dict, p: dict, out: Path) -> dict:
+    """Experiment 1a. Recreate the one-partition test topic and run Kafka's producer performance tool with
+    the setting's batch size and linger, then parse the final summary line of its output (the interval
+    lines have no percentiles) into throughput and latency numbers.
+    """
     stack.start_infra()  # no reset needed: perf_test is recreated, nothing else is involved
     ka.recreate_topics({"perf_test": 1})
     props = [
@@ -238,6 +278,11 @@ def run_e1a(setting: dict, p: dict, out: Path) -> dict:
 
 # --- E1b: pass-through, continuous versus micro-batch (reproduction b, Armbrust et al. Figure 7) -
 def passthrough_step(setting: dict, p: dict, out: Path, rate: float) -> dict:
+    """One E1b measurement at one input rate. It recreates the topics, starts the pass-through job, and
+    runs the generator while a collector records each record's latency and a sampler records the lag.
+    Latencies from the warm-up period are dropped. The result has the latency summary, whether Spark
+    kept up, and whether the generator reached the rate.
+    """
     env = {"PT_MODE": setting["mode"], "PT_TRIGGER_INTERVAL": setting.get("trigger", "100 milliseconds")}
     ka.recreate_topics({"trades": setting["partitions"], "passthrough_out": setting["partitions"]})
     start_spark("spark-passthrough", env, "passthrough-checkpoint")
@@ -264,6 +309,9 @@ def passthrough_step(setting: dict, p: dict, out: Path, rate: float) -> dict:
 
 
 def run_e1b(setting: dict, p: dict, out: Path) -> dict:
+    """Experiment 1b. Start from a clean stack, then either search for the highest rate that keeps up
+    (micro-batch) or measure each rate in the list once (continuous latency curve).
+    """
     fresh_stack(setting["partitions"])
     if setting.get("search_throughput"):
         return search(setting["rates"], lambda r: passthrough_step(setting, p, out, r))
@@ -272,6 +320,10 @@ def run_e1b(setting: dict, p: dict, out: Path) -> dict:
 
 # --- E1c: bars pipeline, partitions and trigger interval -----------------------------------------
 def bars_step(setting: dict, p: dict, out: Path, rate: float) -> dict:
+    """One bars-pipeline measurement at one input rate (E1c and the E4 cost runs). It recreates the topic,
+    empties the tables, starts the bars job, runs the generator, waits for the last windows to be
+    written, then computes bar latency after warm-up, batch durations and whether Spark kept up.
+    """
     ka.recreate_topics({"trades": setting["partitions"]})
     with pg() as c:
         c.execute("TRUNCATE bars, alerts, bars_plain, alerts_plain, query_progress")
@@ -306,6 +358,9 @@ def bars_step(setting: dict, p: dict, out: Path, rate: float) -> dict:
 
 
 def bar_latencies_table(conn, table: str, since_ms: int) -> np.ndarray:
+    """Bar latencies (time written minus window end minus watermark) from the chosen table. The
+    plain-insert table needs its own query, because it can hold several rows per bar.
+    """
     if table == "bars":
         return bar_latencies(conn, WATERMARK_MS, since_ms)
     with conn.cursor() as cur:
@@ -318,12 +373,20 @@ def bar_latencies_table(conn, table: str, since_ms: int) -> np.ndarray:
 
 
 def run_e1c(setting: dict, p: dict, out: Path) -> dict:
+    """Experiment 1c. Start from a clean stack with the setting's partition count and search for the
+    highest input rate the bars job sustains.
+    """
     fresh_stack(setting["partitions"])
     return search(setting["rates"], lambda r: bars_step(setting, p, out, r))
 
 
 # --- E2: broker crash ----------------------------------------------------------------------------
 def run_e2(setting: dict, p: dict, out: Path) -> dict:
+    """Experiment 2, broker crash. Run a paced virtual stream, and halfway through kill the broker that
+    leads partition 0. After the generator finishes, bring the broker back and check three things: the
+    Kafka layer (nothing acknowledged was lost), the bars against the generator's trades, and the bars
+    against what the topic holds. The result includes the write stall and whether it overlaps the kill.
+    """
     fresh_stack()
     start_spark("spark-bars", {}, "spark-checkpoint")
     wall_s = p["minutes"] * 60 / p["speed"]
@@ -393,6 +456,10 @@ def recovery_times(conn, t_kill: int, t_restart: int, timeout_s: float = 300) ->
 
 
 def run_e3(setting: dict, p: dict, out: Path) -> dict:
+    """Experiment 3, Spark crash. Run either a deterministic replay (kill after a fixed batch) or a paced
+    live stream (kill halfway), restart Spark on the same checkpoint at once, measure how long it takes
+    to produce new output, and verify that the final bars are exact.
+    """
     fresh_stack()
     with pg() as conn:
         if setting["mode"] == "deterministic":
@@ -429,6 +496,11 @@ def run_e3(setting: dict, p: dict, out: Path) -> dict:
 
 # --- E4: exactly-once cost -------------------------------------------------------------------------
 def run_e4(setting: dict, p: dict, out: Path) -> dict:
+    """Experiment 4, exactly-once cost. In a crash run, Spark is set to kill itself after a batch commits
+    to the database and before Spark records it. After the restart, the bars are verified and duplicate
+    rows are counted, which is the difference between plain inserts and upserts. A cost run is a normal
+    crash-free measurement at one fixed rate.
+    """
     fresh_stack()
     sink = setting["sink"]
     if setting["kind"] == "crash":  # deterministic replay, crash after batch N commits (SPK-10)
@@ -468,6 +540,9 @@ ORDER = ["e2", "e3", "e4", "e1a", "e1b", "e1c"]  # PLAN.md 5.9: RQ2 and RQ3 firs
 
 # --- driver ----------------------------------------------------------------------------------------
 def load_config(name: str, dry: bool) -> tuple[dict, list[dict]]:
+    """Read an experiment's YAML. In a dry run the short-run overrides replace the full values, for the
+    whole experiment and for each setting.
+    """
     cfg = yaml.safe_load((EXPERIMENTS_DIR / f"{name}.yaml").read_text())
     params = {**cfg.get("params", {}), **(cfg.get("dry_run", {}) if dry else {})}
     settings = cfg["settings"]
@@ -480,6 +555,11 @@ def load_config(name: str, dry: bool) -> tuple[dict, list[dict]]:
 def run_experiment(
     name: str, dry: bool, repeats: int | None, only: str | None, results: Path
 ) -> tuple[list, int]:
+    """Run every setting of an experiment, the configured number of times (E2 acks=1 asks for more). A run
+    that already has result.json is skipped, so an interrupted experiment resumes where it stopped. Each
+    run writes config.json first, then result.json, or error.json if it failed; one failure does not
+    stop the others.
+    """
     params, settings = load_config(name, dry)
     repeats = repeats or params.get("repeats", 3)
     rows, errors = [], 0
@@ -560,6 +640,10 @@ def headline(r: dict) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Command-line entry point. It builds the images unless told not to, runs the chosen experiment (or
+    all of them in order), prints how many runs succeeded and failed, tears the stack down, and exits
+    non-zero if any run failed.
+    """
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("experiment", choices=[*EXPERIMENTS, "all"])
     ap.add_argument(

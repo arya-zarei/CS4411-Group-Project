@@ -51,6 +51,7 @@ DEFAULT_DSN = os.environ.get("PG_DSN", "postgresql://pipeline:change-me-locally@
 
 # --- expected ------------------------------------------------------------------------------------
 def load_trades(path: Path) -> pd.DataFrame:
+    """Read a trade file: JSON lines if the name says so, otherwise CSV (also gzipped)."""
     if ".jsonl" in path.suffixes:
         return pd.read_json(path, lines=True)
     return pd.read_csv(path)
@@ -91,14 +92,22 @@ def expected_output(
 
 # --- comparison (pure; unit-tested) --------------------------------------------------------------
 def _keys(df: pd.DataFrame) -> set[tuple[str, int]]:
+    """The set of (symbol, window start) pairs in a table. A bar or alert is identified by this pair."""
     return set(zip(df["symbol"], df["window_start_ms"].astype("int64"), strict=True))
 
 
 def _examples(keys) -> list[list]:
+    """The first few keys of a set, sorted, to show in the report without listing thousands."""
     return [list(k) for k in sorted(keys)[:MAX_EXAMPLES]]
 
 
 def compare_bars(expected: pd.DataFrame, actual: pd.DataFrame, uncertain: pd.DataFrame | None = None) -> dict:
+    """Compare the bars in PostgreSQL with the expected bars. Missing, extra and duplicate rows are counted
+    by (symbol, window start). Open, high, low and close must be equal exactly, volume within a tiny
+    relative tolerance (summation order differs for fractional sizes), and VWAP within an absolute
+    tolerance. Windows that were not yet closed at the end of a run are ignored. The result is ok only
+    if nothing is missing, extra, duplicated or different.
+    """
     ignore = _keys(uncertain) if uncertain is not None and len(uncertain) else set()
     dup_rows = int(len(actual) - actual.drop_duplicates(KEY).shape[0])
     first = actual.drop_duplicates(KEY, keep="first")
@@ -138,7 +147,13 @@ def compare_bars(expected: pd.DataFrame, actual: pd.DataFrame, uncertain: pd.Dat
 
 
 def compare_alerts(expected: pd.DataFrame, actual: pd.DataFrame) -> dict:
+    """Compare alerts the same way. An alert whose z-score is almost exactly at the threshold may fall on
+    either side because of rounding, so those are ignored on both sides instead of causing a false
+    failure.
+    """
+
     def borderline(df):
+        """Keys of alerts whose absolute z-score is within a hair of the threshold."""
         return _keys(df[((df["z_score"].abs() - ref.Z_THRESHOLD).abs() < BOUNDARY_TOL)]) if len(df) else set()
 
     dup_rows = int(len(actual) - actual.drop_duplicates(KEY).shape[0])
@@ -193,6 +208,9 @@ MS = "(extract(epoch from {c}) * 1000)::bigint"
 
 
 def read_actual(conn, sink: str) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Read the bars and alerts a run wrote to PostgreSQL, ordered by symbol and window. For the
+    plain-insert tables it also orders by id, so duplicates show up in the order they were written.
+    """
     bars_t, alerts_t = TABLES[sink]
     order = ", id" if sink == "insert" else ""
     with conn.cursor() as cur:
@@ -249,6 +267,11 @@ def wait_for_pipeline(conn, sink: str, timeout_s: float, stable_s: float = 10.0)
 
 # --- main ----------------------------------------------------------------------------------------
 def run(args: argparse.Namespace) -> dict:
+    """Do one verification. The expected output comes from the generator's trade file, or from the Kafka
+    topic itself when --from-topic is set. A closing flush trade is added so the last windows count as
+    closed. The function waits for the pipeline if asked, reads PostgreSQL, compares bars and alerts,
+    and returns a report with status PASS or FAIL.
+    """
     import psycopg
 
     if args.from_topic:  # VER-2 (b): expected bars from the topic's actual contents
@@ -279,7 +302,10 @@ def run(args: argparse.Namespace) -> dict:
 
 
 def summary_line(report: dict) -> str:
+    """Turn a report into the one-line result printed at the end of a run."""
+
     def part(name: str, r: dict) -> str:
+        """Format one table's matched, missing, extra, duplicate and mismatched counts."""
         return (
             f"{name} {r['matched']}/{r['expected']} matched (missing {r['missing']}, extra {r['extra']}, "
             f"duplicate rows {r['duplicate_rows']}, mismatched {r['value_mismatches']})"
@@ -292,6 +318,9 @@ def summary_line(report: dict) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Command-line entry point. It runs the verification, optionally writes the JSON report, prints the
+    summary line, and exits 0 on PASS and 1 on FAIL.
+    """
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     src = ap.add_mutually_exclusive_group(required=True)
     src.add_argument(

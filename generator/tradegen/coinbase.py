@@ -68,6 +68,9 @@ def parse_message(raw: str | bytes) -> list[dict]:
 
 
 def subscribe_messages(products: list[str]) -> list[str]:
+    """The two subscribe messages for the Coinbase WebSocket: market trades for the chosen products, and
+    the heartbeats channel, which keeps a quiet connection from being closed.
+    """
     return [
         json.dumps({"type": "subscribe", "product_ids": products, "channel": "market_trades"}),
         json.dumps({"type": "subscribe", "channel": "heartbeats"}),  # keeps quiet connections open
@@ -78,6 +81,10 @@ class LiveSource:
     """Turns exchange trades into numbered trade records, captures them, and hands them to ``emit``."""
 
     def __init__(self, emit: Callable[[Trade], None], capture: Path | None, start_id: int = 1):
+        """Set up the bridge from the exchange to the pipeline. Trades go to emit, optionally also to a
+        capture file. A bounded memory of recent trade keys lets the source drop duplicates after a
+        reconnect.
+        """
         self.emit = emit
         self.next_id = start_id
         if capture:
@@ -90,6 +97,9 @@ class LiveSource:
         self.mode = "live"
 
     def _remember(self, key: str) -> bool:
+        """Return True the first time an exchange trade key is seen and False after that. Only the most
+        recent keys are kept, so memory stays fixed on a long run.
+        """
         if key in self.seen_set:
             return False
         if len(self.seen) == self.seen.maxlen:
@@ -99,6 +109,10 @@ class LiveSource:
         return True
 
     def on_exchange_trade(self, r: dict) -> None:
+        """Handle one trade from the exchange. A repeated key is ignored. Otherwise it gets the next
+        pipeline trade id, is sent on, counted, and appended to the capture file with its original
+        exchange id so the session can be replayed.
+        """
         if not self._remember(f"{r['symbol']}:{r['source_trade_id']}"):
             return
         t = Trade(self.next_id, r["symbol"], r["event_time_ms"], r["price"], r["size"])
@@ -110,6 +124,7 @@ class LiveSource:
             self.capture.write(json.dumps({**t._asdict(), "source_trade_id": r["source_trade_id"]}) + "\n")
 
     def close(self) -> None:
+        """Close the capture file if one is open."""
         if self.capture:
             self.capture.close()
 
@@ -176,5 +191,8 @@ def replay_capture(
 
 
 def latest_capture(capture_dir: Path) -> Path | None:
+    """The most recently modified capture file in the folder, or None if there is none. It is the fallback
+    when the live feed is silent.
+    """
     files = sorted(capture_dir.glob("*.jsonl"), key=lambda p: p.stat().st_mtime)
     return files[-1] if files else None

@@ -23,19 +23,28 @@ SAMPLE_DIR = Path(__file__).resolve().parent.parent / "data" / "sample"
 
 
 def load_sample_trades(sample_dir: Path = SAMPLE_DIR) -> pd.DataFrame:
+    """Read the golden trades (data/sample/trades.csv.gz)."""
     return pd.read_csv(sample_dir / "trades.csv.gz")
 
 
 def load_expected_bars(sample_dir: Path = SAMPLE_DIR) -> pd.DataFrame:
+    """Read the bars the oracle computed for the golden trades."""
     return pd.read_csv(sample_dir / "bars_expected.csv")
 
 
 def load_expected_alerts(sample_dir: Path = SAMPLE_DIR) -> pd.DataFrame:
+    """Read the alerts the oracle computed for the golden trades."""
     return pd.read_csv(sample_dir / "alerts_expected.csv")
 
 
 # --- begin copy of tools/gen_sample_dataset.py ------------------------------------------------
 def compute_bars(trades: pd.DataFrame) -> pd.DataFrame:
+    """Build the one-minute bars from a trade table. Trades are sorted by event time and then trade id, so
+    open and close do not depend on arrival order. Each trade falls in the window that starts at its
+    time rounded down to the minute. Per symbol and window the bar has the first and last price, the
+    highest and lowest price, the total size, the trade count, and the VWAP (sum of price times size,
+    divided by total size).
+    """
     t = trades.sort_values(["event_time_ms", "trade_id"], kind="stable").copy()
     t["window_start_ms"] = (t["event_time_ms"] // WINDOW_MS) * WINDOW_MS
     t["notional"] = t["price"] * t["size"]
