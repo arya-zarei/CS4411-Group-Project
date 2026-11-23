@@ -32,6 +32,31 @@ make reset       # stop and delete all data and volumes
 make help        # list every target
 ```
 
+### Windows without `make`
+
+`make` and the shell scripts need WSL (recommended: `wsl --install`, then work inside Ubuntu with Docker
+Desktop's WSL integration) or Git Bash. Without them, the demo needs only Docker Compose. Open PowerShell in
+the folder that contains `docker-compose.yml` (unzipping can add one extra folder level) and run:
+
+```powershell
+docker compose build generator
+docker compose up --build -d --wait
+docker compose down        # stop, keep the data
+docker compose down -v     # stop and delete all data
+```
+
+If Docker says a port is "not available" (another program uses it, or Windows reserves it), publish
+PostgreSQL on a different port, for example `$env:POSTGRES_HOST_PORT = "15432"` before `docker compose up`.
+Test candidates with:
+
+```powershell
+foreach ($p in 15432,25432,35432) { try { $l=[Net.Sockets.TcpListener]::new([Net.IPAddress]::Parse("127.0.0.1"),$p); $l.Start(); $l.Stop(); "free: $p"; break } catch { "not usable: $p" } }
+```
+
+For the checks that need Python (`uv`), install it with
+`powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"` and reopen PowerShell. Point
+the verifier at a changed PostgreSQL port with `$env:PG_DSN = "postgresql://pipeline:change-me-locally@localhost:15432/market"`.
+
 Behind a TLS-inspecting proxy, build with its CA certificate (the file must be inside this folder):
 `EXTRA_CA_FILE=$PWD/.local/proxy-ca.pem make up`.
 
@@ -96,7 +121,9 @@ If you change the rule, change all three and regenerate the dataset:
 
 `make demo-live` runs the pipeline on live Coinbase trades (needs internet access that allows
 WebSockets). It saves a capture, and `make demo-offline` replays that capture with no network. After a
-live run, `uv run python -m verify.verify --from-topic` checks the output against the topic's contents.
+live run, stop the producer (`docker stop coinbase`) and run
+`uv run python -m verify.verify --from-topic --no-flush --wait 30`, which checks the output against the topic's
+contents (`PASS` expected; no alerts is normal on real prices).
 
 ## Versions
 
