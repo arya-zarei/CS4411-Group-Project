@@ -86,7 +86,7 @@ services:
     image: ${POSTGRES_IMAGE:-postgres:18.6}
     container_name: postgres
     restart: "no"
-    ports: ["127.0.0.1:5432:5432"]
+    ports: ["127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432"]   # set POSTGRES_HOST_PORT if 5432 is taken or reserved (Windows)
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-pipeline}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-locally}
