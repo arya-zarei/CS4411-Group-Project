@@ -116,6 +116,14 @@ Numbers: [results/RESULTS.md](../results/RESULTS.md) and [results/summary.csv](.
 | Alert history read back from PostgreSQL | Keeps the Spark job a plain windowed aggregation (no custom state); costs one indexed query per batch. |
 | `local[4]` in one container (D2) | Matches Armbrust et al.'s 4-core setup and the 16 GB budget; no network shuffle; not a test of distributed Spark. |
 
+## 7. What the single-machine setup limits
+
+Every measurement here ran with all three brokers, Spark, PostgreSQL and the generator on one 4-CPU
+machine: rates are capacities of that machine (and, above about 90,000 records/s, of our input), the
+network between brokers is the loopback interface, and a killed container is not a failed node, a
+partition or a lost disk. Section 10 of the report (`docs/report/report-draft.md`) lists each limit and
+what still holds; every experiment's Kafka and Spark settings are in `results/CONFIGURATION.md`.
+
 ## References
 
 1. J. Kreps, N. Narkhede, J. Rao. Kafka: a distributed messaging system for log processing. NetDB 2011.

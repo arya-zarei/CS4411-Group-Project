@@ -168,3 +168,10 @@ def test_dashboard_panels_cover_dsh_requirements():
         (ROOT / "infra" / "grafana" / "provisioning" / "dashboards" / "dashboards.yml").read_text()
     )
     assert provider["providers"][0]["options"]["path"] == "/var/lib/grafana/dashboards"
+
+
+def test_configuration_document_is_up_to_date():
+    """results/CONFIGURATION.md is generated from the compose file, topic script and experiment YAMLs."""
+    from bench import config_report
+
+    assert config_report.main(["--check"]) == 0, "run: uv run python -m bench.config_report"

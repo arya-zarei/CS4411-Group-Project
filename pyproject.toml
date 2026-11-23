@@ -47,6 +47,7 @@ known-first-party = ["alert_rule", "sink", "progress_listener", "tradegen", "ver
 "tools/gen_sample_dataset.py" = ["B007", "E501", "UP"]
 "tools/make_dashboard.py" = ["E501"]  # SQL strings read better unwrapped
 "bench/summarize.py" = ["E501"]       # figure titles and labels
+"bench/config_report.py" = ["E501"]   # document text
 "verify/reference.py" = ["B007"]
 
 [tool.pytest.ini_options]

@@ -132,6 +132,8 @@ fail for every run, including every crash experiment.
 ## 6. Experiments and results
 
 **Setup.** One machine (`results/MACHINE.md`): 4 CPUs, 16 GB, Docker; every experiment alone on it;
+the Kafka, Spark and producer configuration of every experiment is in `results/CONFIGURATION.md`
+(generated from the files that drive the runs; Appendix A);
 three runs per setting; latency reported as the median over runs of each run's p50, p95 and p99.
 Sustained throughput: the highest input rate at which Spark keeps up over a five-minute run
 (decision D5). A warm-up period is discarded from latency measurements (measured: JVM warm-up
@@ -261,15 +263,76 @@ Real problems met while building and measuring (details and dates: `docs/decisio
 Public repository; `docker compose up` starts everything; image tags and Python packages pinned;
 golden dataset with SHA-256 manifest; `make golden` (verifies the whole pipeline against the oracle);
 `make bench-all` runs every experiment and `uv run python -m bench.summarize` regenerates every table
-and figure; each run stores its configuration, versions, git commit and machine. CI runs lint, unit
+and figure; each run stores its configuration, versions, git commit and machine, and
+`results/CONFIGURATION.md` lists the Kafka, Spark and producer settings of every experiment (a test
+fails if it differs from the files that drive the runs). CI runs lint, unit
 and PostgreSQL integration tests on every push.
 
-## 10. Limitations
+## 10. Limitations: what a single machine can and cannot show
 
-One machine (no network partitions, no multi-node Spark); synthetic data for every measurement
-(live data only in the demo); security features described, not measured; virtual-mode time runs
-ahead of the wall clock (the dashboard plots arrival time); results are trends for this machine, not
-absolute numbers.
+All three Kafka brokers, Spark (`local[4]`), PostgreSQL, Grafana, the generator and the measuring
+harness ran on one 4-vCPU, 16 GB virtual machine (`results/MACHINE.md`). Every container shares those
+four cores, one disk and the loopback network. The results are therefore sound for what they compare
+on this machine and weak as absolute numbers; the specifics:
+
+**Throughput.**
+- *Components compete for the same CPUs.* A measured rate is the pipeline's capacity while the
+  generator, three brokers and PostgreSQL also run. In a cluster Kafka, Spark and the producers would
+  have their own cores, and every rate here would likely be higher. We report sustained rates as
+  properties of this machine, never as limits of Kafka or Spark.
+- *Our input is itself a ceiling.* The Python generator tops out near 100,000 records/s while Spark
+  runs beside it. Results such as "at least 90,000 records/s" and "micro-batch kept up at 100,000" mean
+  "did not saturate before our input did"; the true maximum is unknown.
+- *Partition scaling is capped by cores, not by Kafka.* More partitions than cores did not help
+  (E1b spike S3, E1c): that shows the 4-core limit, not how Kafka scales. The benefit of partitions in
+  production (parallel consumers on many machines, parallel disks) cannot appear here.
+- *No network cost.* Replication between brokers crosses the loopback interface, so the latency of
+  `acks=all` (waiting for two or three replicas over a real network) is understated. The reproduction
+  of Kreps et al. (E1a) also differs: the producer and broker share cores, where the paper used two
+  8-core machines.
+- *One disk and the page cache.* Kafka's throughput depends on sequential disk writes and the page cache;
+  three brokers sharing one volume do not show per-broker disk limits, and we did not set `fsync`.
+- *Noisy, changing hardware.* The virtual machine's CPU changed from 2.30 to 2.10 GHz between two
+  experiments; we added a baseline setting (`p6-1s-b`) and compare triggers only within one machine
+  state (`docs/decisions.md`, 2026-11-12). Three runs per setting give a range, not a confidence
+  interval.
+- *Synthetic data.* All measurements use the seeded generator; live Coinbase data appears only in the
+  demonstration.
+
+**Fault tolerance.**
+- *A killed container is not a failed node.* `docker kill` stops one broker process instantly. It does
+  not model a network partition, a slow or full disk, a failed rack, the loss of a whole machine, or
+  correlated failures of two brokers. With three brokers on one host, the host itself is a single point
+  of failure that no experiment here (or in production on this layout) can survive.
+- *Detection time is configuration, not network behavior.* The roughly 9 s write stall in E2 equals the
+  controller's `broker.session.timeout.ms` (9,000 ms); on a real network, detection also depends on
+  latency, partitions and clock behavior, and the stall could be shorter (tuned) or longer. We
+  measured how this configuration reacts to a clean kill, not how fast Kafka recovers in general.
+- *The failure we injected is the favorable one.* A crashed leader's replicas hold identical data, so
+  `min.insync.replicas=2` with unclean election off loses nothing. Partial failures (a leader that stays
+  up but is cut off from the followers) would test those settings harder, and cannot be produced here.
+- *Spark recovery excludes the cluster.* `local[4]` has no executors to lose, no worker re-scheduling
+  and no shuffle across machines. E3 therefore measures checkpoint recovery of the driver (JVM start,
+  state restore and replay), which is real, but not the recovery behavior of a standalone, YARN or
+  Kubernetes cluster.
+- *Time compression magnifies skew.* The crash experiments run virtual time at 10 times wall-clock speed.
+  A failover skew of a few seconds between partitions became tens of seconds of event time and made the
+  10 s watermark drop trades in one run (section 6.4). With real-time data the same skew is ten times
+  smaller relative to the watermark, so that failure would be rarer; the finding that the watermark must
+  exceed the partition skew still holds.
+- *Exactly-once cost (E4) is for one database.* A single local PostgreSQL has no network round trip and
+  no contention from other writers, so the upsert's cost at 2,000 records/s is a lower bound for a
+  remote or shared database.
+
+**What still holds.** The correctness results do not depend on the machine: the bars and alerts match
+the oracle in every run (`make verify`), no acknowledged trade was lost, and the duplicate-row result of
+E4 follows from the protocol (a crash between the database commit and Spark's commit replays the
+batch). The relative comparisons made on one machine state (batching against none, continuous against
+micro-batch, trigger intervals, insert against upsert) are valid for that machine, and their shapes
+agree with the published papers. Security features (TLS, SASL, ACLs) are described, not measured. To
+extend the study, the same harness could run against a multi-node cluster; the experiment definitions
+(`bench/experiments/*.yaml`) and the configuration record (`results/CONFIGURATION.md`) are the starting
+point.
 
 ## 11. Conclusion
 
@@ -288,6 +351,24 @@ about 13 to 15 s with exact output.
 **RQ3.** Exactly-once output needs an idempotent sink: plain inserts duplicated 300 rows after every
 crash between the database commit and Spark's commit, upserts none, and at 2,000 records/s the
 upsert cost nothing measurable.
+
+## Appendix A. Configuration of each experiment
+
+Fixed for every experiment: three brokers (`apache/kafka:4.4.0`, KRaft combined mode), replication
+factor 3, `min.insync.replicas=2`, unclean leader election off, heap 1 GB per broker, retention one
+day; Spark 4.2.1 `local[4]`, driver memory 2 GB, container limit 4 CPUs and 3 GB, shuffle partitions 4,
+watermark 10 s (bars job), `failOnDataLoss=true`; PostgreSQL 18.6. The generator's producer uses
+`linger.ms=5`, `batch.size=1,000,000`, unlimited retries and idempotence on (with `acks=all`). The full
+tables, generated from the files that drive the runs, are in `results/CONFIGURATION.md`.
+
+| Experiment | Kafka | Spark | Producer and input |
+|---|---|---|---|
+| E1a | `perf_test`: 1 partition, RF 1, min ISR 1 | none | `kafka-producer-perf-test`, 10 M records of 200 B, `acks=0`; `batch.size` 0, 2,000, 10,000, 20,000, 40,000 B; `linger.ms` 0 or 10 |
+| E1b | `trades` and `passthrough_out`: 4 partitions, RF 3 | pass-through job; continuous (1 s checkpoint) or micro-batch (100 ms) | realtime, `acks=all`; 5,000 to 80,000 records/s (continuous), 40,000 to 100,000 (micro-batch); 120 s and 300 s runs |
+| E1c | `trades`: 1, 3 or 6 partitions, RF 3 | bars job, micro-batch trigger 100 ms, 500 ms, 1 s or 5 s, upsert sink | realtime, `acks=all`; 30,000, 60,000, 90,000 records/s; 300 s |
+| E2 | `trades`: 6 partitions, RF 3; leader of partition 0 killed at 50 % | bars job, trigger 1 s | virtual, seed 42, 40 min at 10x; `acks=all` (idempotent), `acks=1`, or `acks=all` without idempotence |
+| E3 | `trades`: 6 partitions, RF 3 | bars job, trigger 1 s; killed at 50 % (live) or after batch 5 (deterministic, `maxOffsetsPerTrigger=5000`) | virtual 10x (live) or golden dataset replay (deterministic), `acks=all` |
+| E4 | `trades`: 6 partitions, RF 3 | bars job; `SINK_MODE` insert or upsert; `FAULT_AFTER_BATCH=5`, `maxOffsetsPerTrigger=5000` (crash) | golden replay (crash), realtime 2,000 records/s for 300 s (cost) |
 
 ## References
 

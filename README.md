@@ -55,6 +55,8 @@ data. Behind a TLS-inspecting proxy, pass its CA: `EXTRA_CA_FILE=$PWD/.local/pro
 | Whole-pipeline correctness | `make golden`; with crashes: `KILL_SPARK_AT=15 KILL_BROKER_AT=35 scripts/live_check.sh` |
 | All experiments (about 12 hours, resumable) | `make bench-all`; or one: `make bench-e2`; quick check: `make bench-dry` |
 | Tables and figures from the raw runs | `uv run python -m bench.summarize` |
+| The Kafka, Spark and producer configuration of every experiment | [results/CONFIGURATION.md](results/CONFIGURATION.md); regenerate with `uv run python -m bench.config_report` |
+| The submission zip, and a check that it works unzipped | `make bundle`, then `scripts/bundle_check.sh` |
 | A fresh clone, end to end | `scripts/fresh_clone_check.sh` |
 | Tests | `make test` (unit and PostgreSQL integration tests; CI runs them on every push) |
 
@@ -67,6 +69,7 @@ commit and machine (git-ignored; the summaries are committed). Details: [docs/ru
 |---|---|
 | [docs/architecture.md](docs/architecture.md) | How Kafka and Spark Structured Streaming work and integrate; failure behaviour with evidence; design trade-offs |
 | [results/RESULTS.md](results/RESULTS.md) | Every measured result |
+| [results/CONFIGURATION.md](results/CONFIGURATION.md) | Kafka, Spark and producer settings of each experiment (generated from the files that drive the runs) |
 | [docs/decisions.md](docs/decisions.md) | Every decision, deviation and finding, dated, with reasons |
 | [docs/runbook.md](docs/runbook.md) | Running the demo, the checks and each experiment; recovering a broken stack |
 | [docs/report/report-draft.md](docs/report/report-draft.md) | Draft of the final report, mapped to the evaluation rubric (to port to the course's LaTeX template) |
@@ -83,7 +86,7 @@ commit and machine (git-ignored; the summaries are committed). Details: [docs/ru
 | [spark/](spark/) | Bars and alerts job, PostgreSQL sink, progress listener, pass-through job |
 | [verify/](verify/) | Oracle (`reference.py`), bar and alert verifier, Kafka-layer verifier |
 | [bench/](bench/) | Experiment harness (`experiments/*.yaml`), collectors, summarizer |
-| [scripts/](scripts/) | `golden.sh`, `live_check.sh`, `fresh_clone_check.sh` |
+| [scripts/](scripts/) | `golden.sh`, `live_check.sh`, `fresh_clone_check.sh`, `make_bundle.sh`, `bundle_check.sh` |
 | [infra/](infra/) | Kafka topics, PostgreSQL schema, Grafana dashboard and data source, Dockerfiles |
 | [data/sample/](data/sample/) | Golden dataset (60,163 trades) with expected bars, alerts and a SHA-256 manifest |
 | [LICENSE](LICENSE) | MIT license |
@@ -111,11 +114,22 @@ These need a person or a different machine; everything else is done and tested. 
 | T28 / T40: quickstart and fresh clone on a teammate's machine | Needs someone who did not write the code, and a second machine | `scripts/fresh_clone_check.sh`, then comment on the issue |
 | Tag `v1.0` (gate G4) | The development environment cannot push tags | `git fetch && git tag -a v1.0 -m "v1.0" origin/main && git push origin v1.0`, or GitHub, Releases, Draft a new release |
 
-Known limitations (also in the report): one machine, so no network partitions and no multi-node
-Spark; synthetic data for every measurement; security features described, not measured; virtual time
+Known limitations (also in the report, section 10, which explains what a single machine can and cannot
+show about throughput and fault tolerance): one machine, so no network partitions, no network cost
+between brokers and no multi-node Spark; synthetic data for every measurement; security features described, not measured; virtual time
 compression magnifies failover skew relative to the watermark (docs/decisions.md, 2026-11-12); the
 benchmark VM changed CPU between experiments, and results are only compared within one machine
 (results/MACHINE.md).
+
+## Submission bundle
+
+The course asks for the code and a running example as one archive. `make bundle` writes
+`dist/cs4411-group6-pipeline.zip` from the committed files (no `.git`, no run outputs, no secrets, no
+file over 5 MB). Unzipped, it works like a clone: the [quickstart](#quickstart) starts the demo and
+`make golden` verifies the whole pipeline. `scripts/bundle_check.sh` unzips it into an empty folder and
+runs those steps (`QUICK=1` skips the Docker part). `WITH_RAW=1 make bundle` also writes
+`dist/cs4411-group6-raw-results.zip` with every run's raw output (about 225 MB, git-ignored); unzip it
+into the project folder and `uv run python -m bench.summarize` regenerates every table and figure.
 
 ## License
 

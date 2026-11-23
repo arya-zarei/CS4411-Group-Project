@@ -32,3 +32,6 @@ kafka-data/
 
 # Machine-specific files (for example a proxy CA used via EXTRA_CA_FILE)
 .local/
+
+# Submission zips (scripts/make_bundle.sh)
+dist/

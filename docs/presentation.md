@@ -17,7 +17,7 @@ measurement: Mark). Swap freely; just keep each person's part in one block.
 | 4:00-6:30 | 6-8 | Rawad | Spark: micro-batch vs continuous, windows and watermark, state store, checkpoint. Integration: partitions become tasks, offsets in the checkpoint, exactly-once = replay + idempotent sink (sequence diagram). |
 | 6:30-9:30 | live | Mark | **Demo** (script below): dashboard, a shock and its alert, Spark crash, broker crash, `make verify` PASS. |
 | 9:30-12:30 | 9-12 | Rawad + Mark | Results, one figure per question: E1a and E1b (the two reproductions, shape vs the papers), E1c (RQ1), E2 and E3 (RQ2), E4 (RQ3). `results/figures/`. |
-| 12:30-14:00 | 13 | Arya | Challenges and limitations (one machine, watermark trade-off, continuous mode's core-per-partition limit, live feed). |
+| 12:30-14:00 | 13 | Arya | Challenges and limitations (one machine: what throughput and fault results can and cannot show, see report section 10; watermark trade-off, continuous mode's core-per-partition limit, live feed). |
 | 14:00-15:00 | 14 | all | Conclusions and reproducibility: one `docker compose up`, `make golden`, `make bench-all`, public repository. |
 
 Rehearse with a timer: the rubric penalizes going over.

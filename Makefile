@@ -6,7 +6,7 @@ COMPOSE := docker compose -f docker-compose.yml -f docker-compose.lite.yml
 endif
 
 .DEFAULT_GOAL := help
-.PHONY: help up build down reset logs ps topics test lint fmt smoke golden verify requirements dashboard \
+.PHONY: help up build down reset logs ps topics test lint fmt smoke golden verify requirements dashboard bundle \
 	demo-live demo-offline \
 	bench-e1a bench-e1b bench-e1c bench-e2 bench-e3 bench-e4 bench-all bench-dry
 
@@ -71,6 +71,9 @@ bench-e1a bench-e1b bench-e1c bench-e2 bench-e3 bench-e4 bench-all:
 
 bench-dry:  ## Dry run of every experiment: short runs, one repeat, results/raw-dry/
 	uv run python -m bench.runner all --dry-run $(BENCH_ARGS)
+
+bundle:  ## Build the submission zip from the committed files: dist/cs4411-group6-pipeline.zip
+	scripts/make_bundle.sh
 
 requirements:  ## Re-export infra/generator/requirements.txt from uv.lock
 	uv export --frozen --no-dev --no-hashes --no-header --no-emit-project --format requirements-txt -o infra/generator/requirements.txt

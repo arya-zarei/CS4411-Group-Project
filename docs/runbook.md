@@ -89,3 +89,22 @@ REF=v1.0 scripts/fresh_clone_check.sh      # the same for the tagged release
 | Image build cannot download packages | Behind a TLS-inspecting proxy: `EXTRA_CA_FILE=$PWD/.local/proxy-ca.pem make up` (README). |
 | Docker Hub "429 Too Many Requests" while building | Anonymous pull limit: wait a few minutes or `docker login`. `BUILD=0 make golden` reuses built images. |
 | Out of memory | `make up LITE=1` (smaller heaps; not for benchmark runs). |
+
+## The submission zip
+
+```bash
+make bundle                      # dist/cs4411-group6-pipeline.zip: the committed files at HEAD
+scripts/bundle_check.sh          # unzip into an empty folder, then uv sync, lint, tests and make golden
+QUICK=1 scripts/bundle_check.sh  # the same without Docker
+WITH_RAW=1 make bundle           # also dist/cs4411-group6-raw-results.zip (every run's raw output)
+```
+
+Commit everything first: the zip holds what is committed, not the working tree (the script warns).
+Tag first if the zip should name a release (`REF=v1.0 scripts/make_bundle.sh`).
+
+## Where an experiment's settings are written down
+
+`results/CONFIGURATION.md` lists the Kafka, Spark and producer settings of every experiment. After
+changing `docker-compose.yml`, `infra/kafka/create-topics.sh`, the generator's defaults or an experiment
+YAML, run `uv run python -m bench.config_report` and commit the result (a unit test fails otherwise).
+
