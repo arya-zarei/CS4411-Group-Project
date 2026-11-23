@@ -271,7 +271,7 @@ services:
 
 secrets:
   extra_ca:
-    file: ${EXTRA_CA_FILE:-/dev/null}   # empty by default; set EXTRA_CA_FILE only behind a TLS-inspecting proxy
+    file: ${EXTRA_CA_FILE:-./infra/build/no-extra-ca}   # an empty file by default (a path that exists on Windows too); set EXTRA_CA_FILE only behind a TLS-inspecting proxy
 
 volumes:
   kafka-1-data:

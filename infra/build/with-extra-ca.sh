@@ -7,7 +7,7 @@
 #
 #   EXTRA_CA_FILE=$PWD/.local/proxy-ca.pem docker compose build   (file must be inside the project folder)
 set -eu
-CA=/run/secrets/extra_ca
+CA=/run/secrets/extra_ca   # empty unless EXTRA_CA_FILE is set (the default is the empty file infra/build/no-extra-ca)
 if [ -s "$CA" ]; then
   d=/tmp/extra-ca
   mkdir -p "$d"
