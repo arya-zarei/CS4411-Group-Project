@@ -54,9 +54,11 @@ verify:  ## Verify PostgreSQL bars and alerts against TRADES (default: the golde
 
 DEMO_SERVICES := kafka-1 kafka-2 kafka-3 postgres grafana spark-bars
 demo-live:  ## Live demo on Coinbase trades (T27); captures to runs/captures/, replays one if the feed is silent
+	$(COMPOSE) --profile live build generator   # the coinbase service reuses this image but has no build of its own
 	$(COMPOSE) --profile live up --build -d --wait $(DEMO_SERVICES) coinbase
 
 demo-offline:  ## Live demo without network: replay the newest capture in runs/captures/ (LIVE-4)
+	$(COMPOSE) --profile live build generator
 	$(COMPOSE) --profile live up --build -d --wait $(DEMO_SERVICES)
 	$(COMPOSE) --profile live run -d --rm --no-deps --name coinbase-offline coinbase \
 	  --mode=live-coinbase --offline --capture-dir=/runs/captures --acks=all
