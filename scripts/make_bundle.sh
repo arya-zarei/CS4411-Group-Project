@@ -25,7 +25,7 @@ git archive --format=zip --prefix="$NAME/" -o "dist/$NAME.zip" "$REF"
 if unzip -Z1 "dist/$NAME.zip" | grep -i -E 'rubric|handout|\.local/|\.env$|\.pem$'; then
   echo "error: a file that must not be shared is in the zip" >&2; exit 1
 fi
-big=$(unzip -Z "dist/$NAME.zip" | awk '$4 > 5*1024*1024 {print $NF, $4}')
+big=$(unzip -Z "dist/$NAME.zip" | awk '/^-/ && $4 > 5*1024*1024 {print $NF, $4}')
 [[ -z "$big" ]] || { echo "error: file over 5 MB in the zip: $big" >&2; exit 1; }
 
 echo "dist/$NAME.zip  $(du -h "dist/$NAME.zip" | cut -f1)  $(unzip -Z1 "dist/$NAME.zip" | grep -vc '/$') files  ($(git rev-parse --short "$REF"))"
