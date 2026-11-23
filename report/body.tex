@@ -429,6 +429,17 @@ latency p50 was 1.7 s [1.5 to 1.9] against 2.1 s [1.7 to 2.3], with overlapping 
 \label{fig:e4}
 \end{figure}
 
+\subsection{Live Coinbase run}
+\label{sec:live}
+We also ran the pipeline on live trades from Coinbase's public market-data feed for ten products (BTC, ETH,
+SOL, XRP, DOGE, ADA, AVAX, LINK, LTC and BCH), on a Windows laptop with Docker Desktop, for more than 20
+minutes. The producer connected to the feed, sent every trade to Kafka with acks=all, and saved a capture. The
+dashboard filled with one-minute bars for all ten symbols, with Spark's lag at zero. No alert fired, which is
+expected: live prices rarely move three standard deviations from their previous 30 one-minute returns, while the
+synthetic data injects such shocks on purpose. After stopping the producer we ran the verifier against the
+topic's own contents, because no generator file exists for live data. All 230 bars matched exactly (none
+missing, extra, duplicated or different), and there were no alerts to match.
+
 %------------------------------------------------------------------------------------------------
 \section{Discussion: reproduction and extension}
 \paragraph{Reproduction (a).} Batching raises producer throughput by more than an order of magnitude,
@@ -474,8 +485,11 @@ are exact at no cost we could measure at 2,000 records per second.
   \item \textbf{Versions and tooling.} We checked that Kafka 4.4, Spark 4.2, PostgreSQL 18 and Grafana 13
         exist before pinning them, and had to build images behind a TLS-inspecting proxy and around Docker
         Hub rate limits.
-  \item \textbf{Live data access.} The cloud development environment could not reach the Coinbase feed. We
-        tested the adapter against a fake server that follows the protocol, and from captured sessions.
+  \item \textbf{Live data access.} The cloud development environment could not reach the Coinbase feed, so we
+        first tested the adapter against a fake server that follows the protocol, and from captured sessions. We
+        later ran it on a laptop (Section~\ref{sec:live}). Getting the stack to start on Windows took four fixes
+        (a Linux-only default path, a missing image build, and two host ports that Windows had reserved or
+        another project was using).
 \end{enumerate}
 
 %------------------------------------------------------------------------------------------------
@@ -518,7 +532,7 @@ absolute numbers.
         experiments. We added a baseline setting (\code{p6-1s-b}) and compare triggers only within one machine
         state. Three runs per setting give a range, not a confidence interval.
   \item \textbf{Synthetic data.} Every measurement uses the seeded generator. Live Coinbase data appears only
-        in the demonstration.
+        in the demonstration and in the short run of Section~\ref{sec:live}.
 \end{itemize}
 
 \subsection{Fault tolerance}

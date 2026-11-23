@@ -2,6 +2,16 @@
 
 Every decision and every deviation from the proposal or `PLAN.md`, newest first. Format: date, ID, decision, reason.
 
+## 2026-11-23 (M4: live Coinbase run, T27)
+
+* **T27 done:** the pipeline ran on live Coinbase trades (10 products) for more than 20 minutes on a Windows
+  laptop. `python -m verify.verify --from-topic --no-flush`: PASS, 230/230 bars, no alerts (none expected).
+  Dashboard showed 10 symbols, Kafka lag 0. The capture is `runs/captures/coinbase-live.jsonl` (kept locally).
+* **Windows fixes found by that run:** compose defaulted the optional CA secret to `/dev/null` (now the empty
+  tracked file `infra/build/no-extra-ca`); `make demo-live` did not build the `generator` image that the
+  `coinbase` service reuses (it now does); the PostgreSQL host port is configurable with `POSTGRES_HOST_PORT`
+  (Windows reserved 5432 and 56789 on that machine; 15432 worked).
+
 ## 2026-11-23 (M4: instructor feedback on the proposal)
 
 The proposal was approved with two requests for the final report. Both are now in the repo.
