@@ -77,6 +77,36 @@ Figure~7, comparing the shape of each curve and not the absolute numbers; (4) ex
 experiments they did not run, namely correctness under crashes and the cost of exactly-once output;
 and (5) publish a repository that others can run, with pinned versions and scripted experiments.
 
+\subsection{What the papers set out to do, and what we add}
+\label{sec:papergoals}
+\paragraph{Kreps et al.~\cite{kreps2011}} describe Kafka as a system for collecting and delivering high volumes of
+log data with low overhead. Their goal is throughput: a producer that batches messages and writes them
+sequentially to a log can send far more than a traditional queue. Their Figure~4 shows producer throughput for
+batches of 1 and 50 messages on healthy machines. We reproduce that figure (E1a) and add intermediate batch
+sizes. The figure does not show what happens to the data when a broker fails, which is our second research
+question.
+
+\paragraph{Wang et al.~\cite{wang2015}} describe how Kafka replicates its log: a leader and followers, an
+in-sync replica set, and the settings that decide when a write counts as committed. Their goal is a replicated
+log that stays available and does not lose committed messages through a broker failure. We test those settings
+(replication factor 3, minimum ISR 2, acks, idempotence) under real broker kills (E2), check that nothing
+acknowledged is lost, and measure the write stall a kill causes.
+
+\paragraph{Armbrust et al.~\cite{armbrust2018}} present Structured Streaming as a declarative API with
+end-to-end exactly-once results, built on micro-batches, with an experimental continuous mode for low latency.
+Their Figure~7 compares continuous-mode latency with the throughput micro-batch mode sustains on four cores.
+We reproduce it (E1b). The paper explains how exactly-once output follows from replay plus an idempotent sink. We
+test that directly: we crash Spark between the database commit and its own commit and count the duplicate rows
+with and without an idempotent sink (E4), and we time recovery (E3).
+
+\paragraph{Zaharia et al.~\cite{zaharia2013} and Akidau et al.~\cite{akidau2015}} supply the ideas underneath:
+micro-batch execution with recovery by recomputation, and event-time windows with watermarks. Our E1c varies the
+trigger interval, and our E2 shows what a watermark does when a failover delays one partition.
+
+\paragraph{The extension.} The papers evaluate Kafka and Spark one at a time. We connect them, inject
+failures, and check every result against an exact answer. That joint view, correctness under crashes and the
+price of exactly-once output, is the part we add.
+
 %------------------------------------------------------------------------------------------------
 \section{Architecture analysis}
 \label{sec:arch}
@@ -270,6 +300,23 @@ three standard deviations. A symbol with fewer than 31 bars, or with zero varian
 
 \paragraph{Sink and dashboard.} Each batch is one PostgreSQL transaction (Section~\ref{sec:integration}).
 Grafana shows candlesticks, VWAP, alerts and Spark's own progress metrics.
+
+\paragraph{Demonstration.} The demonstration (recorded with the presentation) starts the whole stack with one
+command and shows five things in about two and a half minutes. First, the Grafana dashboard
+(Figure~\ref{fig:dashboard}): bars arriving for the symbols, a candlestick and VWAP panel per symbol, and a health
+row with the number of bars, Spark's input lag and the seconds since the latest bar. Second, an alert: the first
+shocks appear after about 80 seconds, and selecting that symbol shows the price jump. Third, a crash of the Spark
+container, after which the dashboard's ``seconds since last bar'' climbs and bars resume. Fourth, a crash of one
+Kafka broker, during which bars keep arriving. Fifth, the verifier's PASS line, which shows that every bar and
+alert equals the oracle's despite both crashes. The same dashboard also runs on live Coinbase trades
+(Section~\ref{sec:live}), and a capture lets the demonstration run without a network.
+
+\begin{figure}[H]
+\centering\includegraphics[width=0.95\textwidth]{dashboard-live.png}
+\caption{The Grafana dashboard during the live Coinbase run: 220 bars written, 10 symbols, Kafka lag 0, and the
+one-minute candlesticks and VWAP of one symbol.}
+\label{fig:dashboard}
+\end{figure}
 
 \paragraph{Verification.} We treat verification as part of the system. An oracle
 (\path{tools/gen_sample_dataset.py}, copied into \path{verify/reference.py}) computes the exact expected bars
