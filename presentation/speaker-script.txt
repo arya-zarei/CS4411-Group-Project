@@ -1,0 +1,94 @@
+SPEAKER SCRIPT: Group 6, 15-minute presentation
+
+--- Slide 1 ---
+[Arya, about 25 s]
+
+Hi, we are Group 6. In fifteen minutes we will show a real-time pipeline that turns trades into bars and alerts, and test whether Kafka and Spark keep their promises of speed, durability and exactly-once results. Rawad covers Spark, Mark runs the demo and most of the results, and I start with Kafka and finish with what we learned.
+
+--- Slide 2 ---
+[Arya, about 45 s]
+
+A trading desk does not want raw trades. It wants a summary per symbol per minute, and a warning when a price moves more than usual. The usual design is a durable log plus a stream processor: Kafka and Spark Structured Streaming. Both come with promises. Kafka promises speed and durability through replication. Spark promises exactly-once results through replay and checkpoints. Those promises depend on configuration, so we asked three questions: how do partitions, trigger interval and processing mode trade latency against throughput; what happens to the data when a broker or Spark crashes; and what does exactly-once output cost?
+
+--- Slide 3 ---
+[Arya, about 35 s]
+
+This is what we built, and we will come back to it. A seeded generator publishes trades, keyed by symbol, to a Kafka topic with six partitions on three brokers. Spark reads one task per partition, builds one-minute bars with a ten second watermark, and writes each batch to PostgreSQL in one transaction. Grafana reads PostgreSQL. The dashed line is Spark's checkpoint. Because the generator is seeded, we know the correct output in advance, so we can check every run.
+
+--- Slide 4 ---
+[Arya, about 45 s]
+
+Kafka stores events in partitions, append-only files that are written and read sequentially in batches, which is why it is fast. Order holds within a partition, so keying by symbol keeps each symbol in order. Each partition is copied to three brokers: one leader, and followers that form the in-sync replica set. Durability depends on the replication factor, on how many copies the producer waits for, and on the minimum in-sync replicas. We use three, acks equal to all, and a minimum of two, plus an idempotent producer, because a retry after a crash can otherwise write a trade twice. We saw that happen.
+
+--- Slide 5 ---
+[Rawad, about 45 s]
+
+Thanks, Arya. Spark treats a stream as a table that keeps growing and runs a normal query over it, in micro-batches: a trigger starts a batch, and the batch reads the offsets that arrived since the last one. Our query builds one-minute event-time windows per symbol. A ten second watermark says how long to wait for late trades, and each bar is written once, when the watermark passes its minute. State and offsets go to a checkpoint. Continuous mode has lower latency, but it only handles per-record operations, so it cannot run our bars job; we measure it with a pass-through job.
+
+--- Slide 6 ---
+[Rawad, about 40 s]
+
+Here the two systems meet. Each Kafka partition becomes one Spark task. Spark keeps offsets in its own checkpoint, written before a batch is processed, so offsets are tied to the state and the output; a consumer group offset only says consumed. After a crash Spark replays the unfinished batch, so the output must tolerate a second write. Each batch goes to PostgreSQL in one transaction with an upsert on symbol and window, so a replay changes nothing. A crash between steps five and six is exactly what our fourth experiment tests.
+
+--- Slide 7 ---
+[Rawad, about 30 s]
+
+A benchmark from a wrong run is worthless, so every run is checked. A seeded generator makes about sixty thousand trades with twenty price shocks at known times. An oracle computes the expected four thousand bars and twenty-three alerts. The verifier compares every bar and alert, and a second check compares what the producer was told was acknowledged with what is in the topic. Every experiment, crashes included, ends in pass or fail.
+
+--- Slide 8 ---
+[Mark, about 150 s]
+
+DEMO SCRIPT (about 2.5 minutes live). Start from a clean stack: make reset, then make up, and wait about a minute before recording.
+
+1. Dashboard (30 s). Open localhost:3000. Bars arrive for 100 symbols at thirty times speed. Pick a symbol: candlesticks, VWAP line, and the health row, lag zero and seconds since the last bar.
+2. An alert (25 s). After about eighty seconds the first alerts appear. Pick one in the alerts table, select that symbol, and show the price jump in its candlestick.
+3. Spark crash (35 s). Run: docker kill spark-bars, then docker compose up -d spark-bars. Seconds since the last bar climbs, then bars resume. Experiment three measured how long.
+4. Broker crash (35 s). Run: docker kill kafka-2. Bars keep arriving, because replication factor three with a minimum of two tolerates one broker. Bring it back with docker compose up -d kafka-2.
+5. Proof (25 s). Show the final PASS line of the verifier, or the output of scripts/live_check.sh with KILL_SPARK_AT=15 and KILL_BROKER_AT=35 run beforehand: every bar and alert equals the oracle despite both crashes.
+
+Fallback: record the demo separately and splice it in. Live Coinbase data is shown later.
+
+--- Slide 9 ---
+[Rawad, about 35 s]
+
+Our first reproduction is Figure 4 of the original Kafka paper: batching makes a producer much faster. We used Kafka's performance tool with ten million records of two hundred bytes and no acknowledgements. Throughput goes from about twenty thousand records per second unbatched to over five hundred thousand with batches of fifty, twenty-six times. The paper reports about eight times. Our absolute numbers differ because producer and broker share one four-core machine, but the shape is the same.
+
+--- Slide 10 ---
+[Rawad, about 40 s]
+
+The second reproduction is Figure 7 of the Structured Streaming paper. We ran a stateless pass-through job in both modes. Continuous mode answers in forty-three to eighty-three milliseconds up to forty thousand records per second, then saturates at eighty thousand, where the median jumps to 1.8 seconds. Micro-batch keeps up with at least a hundred thousand, the most our generator can produce, at a few hundred milliseconds. Continuous mode trades throughput for latency, as the paper says. Their latency was about one millisecond; ours includes producer batching and a three-replica write.
+
+--- Slide 11 ---
+[Mark, about 40 s]
+
+For the first question we ran the real bars job at thirty, sixty and ninety thousand records per second. One partition sustains about seventy-five thousand, and three or six sustain at least ninety thousand, the limit of our generator. On latency, the best trigger changes with load. At thirty thousand a half-second trigger is fastest, 1.7 seconds. At sixty thousand a batch takes about two seconds whatever the trigger, so a shorter trigger only adds overhead, and one second wins at 4.9 seconds. Five seconds is always slowest.
+
+--- Slide 12 ---
+[Mark, about 45 s]
+
+Second question: a broker dies. We killed the leader of partition zero twelve times, and no acknowledged trade was lost. With acks equal to all, writes stalled for about nine seconds on every partition, because the dead broker stays in the in-sync set until it is fenced, which takes the nine second session timeout. With acks equal to one, only the dead broker's partitions stalled, but that setting can lose acknowledged writes; we saw it once. In one run Spark dropped trades as late, because partitions resumed 3.8 seconds apart and our time compression stretched that past the watermark. The watermark must exceed the failover skew.
+
+--- Slide 13 ---
+[Rawad, about 25 s]
+
+We also killed Spark with SIGKILL and restarted it on the same checkpoint. The first new bar appeared 12.8 seconds later in replay and 14.6 seconds later on a live stream, and the output was exact in all six runs. Almost all of that time is JVM start-up. The checkpoint plus the upsert sink make the replay safe.
+
+--- Slide 14 ---
+[Mark, about 35 s]
+
+Third question: what does exactly-once cost. We made Spark kill itself after the database commit and before it recorded the batch, so the restart replays a batch that is already in the database. Plain inserts left three hundred duplicate rows every time. Upserts left none. Without a crash, at two thousand records per second, batch duration was 460 milliseconds for inserts and 451 for upserts, so we measured no cost, with the caveat that our database is local.
+
+--- Slide 15 ---
+[Arya, about 55 s]
+
+Things went wrong along the way: an unpaced replay made small skews look like late data, a retry duplicated a trade until we enabled idempotence, continuous mode silently skipped two of six partitions on four cores, and a SIGKILL to a container's main process is ignored without an init process. The instructors asked us to discuss the limits of one machine. Everything shared four CPUs and one disk, so our rates are this machine's capacity, and above ninety thousand they are our generator's. Brokers talk over loopback, so acks equal to all looks cheaper than on a network. A killed container is not a failed node, so the nine second stall reflects our timeout setting. What holds is correctness: exact output, nothing acknowledged lost, and the relative comparisons.
+
+--- Slide 16 ---
+[Mark, about 30 s]
+
+Finally, real data. We ran the producer against Coinbase's public feed for ten products for more than twenty minutes. The dashboard filled with bars for all ten symbols with Spark's lag at zero. No alert fired, which is expected, because real prices rarely move three standard deviations in that time. The verifier compared the output with the topic itself, and all 230 bars matched. A capture and replay mode lets the demo run offline.
+
+--- Slide 17 ---
+[All three, about 40 s]
+
+To sum up. Processing mode sets the latency floor, and the trigger should match the load. With replication factor three and a minimum of two, no acknowledged trade was lost, and Spark recovers in about fifteen seconds with exact output. Exactly-once output needs an idempotent sink, and it cost us nothing we could measure. Everything is reproducible: one docker compose up, make golden to check against the oracle, scripted experiments, and the code and data in the repository and the zip. Thank you. We are happy to take questions.

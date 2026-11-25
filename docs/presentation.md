@@ -8,17 +8,28 @@ whether its claims of speed, durability and exactly-once results hold up when we
 Speakers below follow the proposal's work division (Kafka: Arya; Spark: Rawad; output and
 measurement: Mark). Swap freely; just keep each person's part in one block.
 
-## Running order
+## The deck
 
-| Time | Slide(s) | Speaker | Content |
-|---|---|---|---|
-| 0:00-1:30 | 1-2 | Arya | Title, problem: trades in, 1-minute bars and alerts out within seconds. Three research questions (RQ1 latency vs throughput, RQ2 crashes, RQ3 cost of exactly-once). |
-| 1:30-4:00 | 3-5 | Arya | Kafka: partitions and ordering by key, replication and ISR, acks, KRaft, consumer groups vs Spark's own offsets. One diagram: `docs/architecture.md` section 1. |
-| 4:00-6:30 | 6-8 | Rawad | Spark: micro-batch vs continuous, windows and watermark, state store, checkpoint. Integration: partitions become tasks, offsets in the checkpoint, exactly-once = replay + idempotent sink (sequence diagram). |
-| 6:30-9:30 | live | Mark | **Demo** (script below): dashboard, a shock and its alert, Spark crash, broker crash, `make verify` PASS. |
-| 9:30-12:30 | 9-12 | Rawad + Mark | Results, one figure per question: E1a and E1b (the two reproductions, shape vs the papers), E1c (RQ1), E2 and E3 (RQ2), E4 (RQ3). `results/figures/`. |
-| 12:30-14:00 | 13 | Arya | Challenges and limitations (one machine: what throughput and fault results can and cannot show, see report section 10; watermark trade-off, continuous mode's core-per-partition limit, live feed). |
-| 14:00-15:00 | 14 | all | Conclusions and reproducibility: one `docker compose up`, `make golden`, `make bench-all`, public repository. |
+`presentation/group6-final-presentation.pptx` (17 slides, speaker notes on every slide) is built by
+`presentation/build_deck.py` from `results/figures/` and the live dashboard screenshot in
+`presentation/assets/`. `presentation/speaker-script.txt` has the same notes for printing. Rebuild after
+changing a figure: `uv run --no-project --with python-pptx --with pillow python presentation/build_deck.py`.
+
+## Running order (about 12.7 minutes of speaking and demo, 2 minutes of slack)
+
+| Slides | Speaker | Content |
+|---|---|---|
+| 1-4 | Arya | Title, problem and the three research questions, the pipeline, Kafka (partitions, replication, acks). |
+| 5-7 | Rawad | Spark (micro-batch, windows, watermark, checkpoint), integration (exactly-once = replay + idempotent sink), correctness first (oracle and verifier). |
+| 8 | Mark | **Live demo** (about 2.5 minutes, script in the slide's notes): dashboard, an alert, Spark crash, broker crash, PASS. |
+| 9-10 | Rawad | The two reproductions: E1a (Kreps et al. Fig. 4) and E1b (Armbrust et al. Fig. 7). |
+| 11-12, 14 | Mark | RQ1 (E1c), RQ2 broker crash (E2), RQ3 (E4). |
+| 13 | Rawad | RQ2 Spark crash (E3). |
+| 15 | Arya | Challenges and the limits of one machine. |
+| 16 | Mark | The live Coinbase run (230 of 230 bars). |
+| 17 | all | Conclusions and reproducibility. |
+
+Swap speakers freely, but keep each person's slides in blocks and make sure everyone speaks.
 
 Rehearse with a timer: the rubric penalizes going over.
 
